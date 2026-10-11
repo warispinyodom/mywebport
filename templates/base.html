@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="th" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Portfolio Showcase{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col font-sans">
+
+    <!-- Navbar -->
+    <nav class="bg-slate-800/80 backdrop-blur sticky top-0 z-50 border-b border-slate-700">
+        <div class="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center">
+            <a href="/" class="text-xl font-bold text-indigo-400 hover:text-indigo-300">🚀 MyPortfolio</a>
+            <div class="flex space-x-6 items-center">
+                <a href="/#about" class="hover:text-indigo-400">ประวัติ</a>
+                <a href="/#projects" class="hover:text-indigo-400">ผลงาน</a>
+                <a href="/#contact" class="hover:text-indigo-400">ติดต่อ</a>
+                {% if session.get('is_admin') %}
+                    <a href="/admin" class="bg-indigo-600 px-3 py-1 rounded text-sm hover:bg-indigo-500">Admin Panel</a>
+                    <a href="/logout" class="text-red-400 text-sm hover:underline">ออกจากระบบ</a>
+                {% else %}
+                    <a href="/login" class="text-slate-400 text-sm hover:text-slate-200"><i class="fas fa-lock mr-1"></i> Admin</a>
+                {% endif %}
+            </div>
+        </div>
+    </nav>
+
+    <!-- Flash Messages -->
+    <div class="max-w-6xl mx-auto px-4 mt-4 w-full">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="p-4 rounded-lg text-sm mb-2 {% if category == 'danger' %}bg-red-900/50 border border-red-500 text-red-200{% elif category == 'success' %}bg-green-900/50 border border-green-500 text-green-200{% else %}bg-blue-900/50 border border-blue-500 text-blue-200{% endif %}">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+
+    <!-- Main Content -->
+    <main class="flex-grow">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-slate-950 border-t border-slate-800 text-center py-6 text-slate-500 text-sm">
+        © 2026 Developed with Flask & Firebase on Vercel. All rights reserved.
+    </footer>
+
+</body>
+</html>

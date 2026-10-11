@@ -1,0 +1,78 @@
+{% extends 'base.html' %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto px-4 py-8">
+    <div class="bg-slate-800 p-6 md:p-8 rounded-xl border border-slate-700 shadow-xl">
+        <h1 class="text-2xl font-bold mb-6 text-white">{{ title }}</h1>
+
+        <!-- ใส่ enctype="multipart/form-data" เพื่อรองรับการอัปโหลดไฟล์ -->
+        <form action="{{ url_for('edit_project', project_id=project.id) if project else url_for('add_project') }}" method="POST" enctype="multipart/form-data" class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium mb-1">ชื่อผลงาน *</label>
+                <input type="text" name="title" value="{{ project.title if project else '' }}" required class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white">
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium mb-1">หมวดหมู่ (Category)</label>
+                <input type="text" name="category" value="{{ project.category if project else 'Web App' }}" placeholder="เช่น Web App, Mobile, API" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white">
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium mb-1">คำอธิบายรายละเอียดผลงาน</label>
+                <textarea name="description" rows="4" required class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white">{{ project.description if project else '' }}</textarea>
+            </div>
+
+            <!-- ส่วนการเลือกรูปภาพ (อัปโหลด หรือ URL) -->
+            <div class="p-4 bg-slate-900/60 rounded-lg border border-slate-700 space-y-3">
+                <label class="block text-sm font-medium text-indigo-400">รูปภาพตัวอย่างผลงาน</label>
+                
+                {% if project and project.image_url %}
+                <div class="mb-2">
+                    <span class="text-xs text-slate-400 block mb-1">รูปปัจจุบัน:</span>
+                    <img src="{{ project.image_url }}" alt="Current Image" class="w-32 h-20 object-cover rounded border border-slate-700">
+                </div>
+                {% endif %}
+
+                <div>
+                    <label class="block text-xs text-slate-300 mb-1">1. อัปโหลดไฟล์รูปภาพใหม่ (ขึ้น Firebase Storage)</label>
+                    <input type="file" name="image_file" accept="image/*" class="w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-500 cursor-pointer">
+                </div>
+
+                <div class="text-center text-xs text-slate-500 py-1">- หรือ -</div>
+
+                <div>
+                    <label class="block text-xs text-slate-300 mb-1">2. ระบุลิงก์รูปภาพจากภายนอก (Image URL)</label>
+                    <input type="url" name="image_url" value="{{ project.image_url if project else '' }}" placeholder="https://..." class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-white">
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium mb-1">ลิงก์ทดลองใช้งาน (Demo URL)</label>
+                    <input type="url" name="demo_url" value="{{ project.demo_url if project else '' }}" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-1">ลิงก์ GitHub (Source Code)</label>
+                    <input type="url" name="github_url" value="{{ project.github_url if project else '' }}" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white">
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium mb-1">แท็กเทคโนโลยีที่ใช้ (คั่นด้วยเครื่องหมายจุลภาค ,)</label>
+                <input type="text" name="tags" value="{{ project.tags_str if project else '' }}" placeholder="Python, Flask, Tailwind CSS" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white">
+            </div>
+
+            <div class="flex items-center space-x-2 pt-2">
+                <input type="checkbox" id="is_featured" name="is_featured" {% if project and project.is_featured %}checked{% endif %} class="w-4 h-4 text-indigo-600 rounded bg-slate-900 border-slate-700">
+                <label for="is_featured" class="text-sm font-medium text-slate-300">แสดงในกลุ่มผลงานแนะนำ (Featured Project)</label>
+            </div>
+
+            <div class="flex justify-end space-x-3 pt-4 border-t border-slate-700">
+                <a href="/admin" class="px-4 py-2 rounded bg-slate-700 hover:bg-slate-600 text-sm">ยกเลิก</a>
+                <button type="submit" class="px-6 py-2 rounded bg-indigo-600 hover:bg-indigo-500 font-bold text-sm">บันทึกข้อมูล</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

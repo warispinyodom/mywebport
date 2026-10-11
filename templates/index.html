@@ -1,0 +1,120 @@
+{% extends 'base.html' %}
+{% block title %}หน้าหลัก - ผลงานและประวัติ{% endblock %}
+
+{% block content %}
+<!-- Hero Section -->
+<section id="about" class="py-20 text-center bg-gradient-to-b from-slate-900 to-slate-800 border-b border-slate-800">
+    <div class="max-w-4xl mx-auto px-4">
+        <div class="w-32 h-32 mx-auto rounded-full bg-indigo-500 flex items-center justify-center text-4xl font-bold mb-6 shadow-lg shadow-indigo-500/30">
+            💻
+        </div>
+        <h1 class="text-4xl md:text-5xl font-extrabold mb-3">{{ profile.name }}</h1>
+        <p class="text-xl text-indigo-400 mb-6 font-medium">{{ profile.title }}</p>
+        <p class="text-slate-300 max-w-2xl mx-auto leading-relaxed mb-8">{{ profile.bio }}</p>
+        
+        <!-- Tech Stack Badges -->
+        <div class="flex flex-wrap justify-center gap-2 mb-8">
+            {% for skill in profile.skills %}
+                <span class="bg-slate-700 text-indigo-300 text-sm font-semibold px-3 py-1 rounded-full border border-slate-600">{{ skill }}</span>
+            {% endfor %}
+        </div>
+
+        <div class="flex justify-center space-x-4">
+            <a href="#contact" class="bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-6 py-2.5 rounded-lg transition shadow-md">ส่งข้อความติดต่อ</a>
+            <a href="#projects" class="bg-slate-700 hover:bg-slate-600 text-white font-medium px-6 py-2.5 rounded-lg transition">ดูผลงานทั้งหมด</a>
+        </div>
+    </div>
+</section>
+
+<!-- Projects Showcase Section -->
+<section id="projects" class="py-16 max-w-6xl mx-auto px-4">
+    <div class="text-center mb-12">
+        <h2 class="text-3xl font-bold mb-2">ผลงานและโปรเจกต์ที่ผ่านมา</h2>
+        <p class="text-slate-400">รวบรวม Web Applications, ระบบ และโปรเจกต์ต่างๆ</p>
+    </div>
+
+    {% if projects %}
+    <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {% for project in projects %}
+        <div class="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden hover:border-indigo-500 transition shadow-lg flex flex-col">
+            <img src="{{ project.image_url }}" alt="{{ project.title }}" class="w-full h-48 object-cover">
+            <div class="p-5 flex-grow flex flex-col justify-between">
+                <div>
+                    <div class="flex justify-between items-start mb-2">
+                        <span class="text-xs font-semibold px-2.5 py-0.5 rounded bg-indigo-900/80 text-indigo-300 border border-indigo-700">{{ project.category }}</span>
+                        {% if project.is_featured %}
+                            <span class="text-xs bg-amber-900/80 text-amber-300 px-2 py-0.5 rounded border border-amber-700">⭐ แนะนำ</span>
+                        {% endif %}
+                    </div>
+                    <h3 class="text-xl font-bold mb-2 text-white">{{ project.title }}</h3>
+                    <p class="text-slate-300 text-sm mb-4 leading-relaxed line-clamp-3">{{ project.description }}</p>
+                </div>
+                
+                <div>
+                    <!-- Tags -->
+                    <div class="flex flex-wrap gap-1 mb-4">
+                        {% for tag in project.tags %}
+                            <span class="text-xs bg-slate-900 text-slate-400 px-2 py-0.5 rounded">#{{ tag }}</span>
+                        {% endfor %}
+                    </div>
+
+                    <!-- Links -->
+                    <div class="flex space-x-3 pt-3 border-t border-slate-700/60">
+                        {% if project.demo_url %}
+                            <a href="{{ project.demo_url }}" target="_blank" class="flex-1 text-center bg-indigo-600/80 hover:bg-indigo-600 text-xs py-2 rounded text-white font-semibold transition">
+                                <i class="fas fa-external-link-alt mr-1"></i> Live Demo
+                            </a>
+                        {% endif %}
+                        {% if project.github_url %}
+                            <a href="{{ project.github_url }}" target="_blank" class="flex-1 text-center bg-slate-700 hover:bg-slate-600 text-xs py-2 rounded text-white font-semibold transition">
+                                <i class="fab fa-github mr-1"></i> Source Code
+                            </a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-center py-12 text-slate-500 bg-slate-800/40 rounded-xl border border-dashed border-slate-700">
+        <i class="fas fa-folder-open text-4xl mb-3 block"></i>
+        ยังไม่มีผลงานการแสดงในขณะนี้ (แอดมินสามารถเพิ่มได้ที่ระบบหลังบ้าน)
+    </div>
+    {% endif %}
+</section>
+
+<!-- Contact Section -->
+<section id="contact" class="py-16 bg-slate-800/50 border-t border-slate-800">
+    <div class="max-w-3xl mx-auto px-4">
+        <div class="text-center mb-10">
+            <h2 class="text-3xl font-bold mb-2">ช่องทางติดต่อ</h2>
+            <p class="text-slate-400">สนใจร่วมงาน สอบถาม หรือฝากข้อความไว้ได้ทันทีครับ</p>
+        </div>
+
+        <form action="/contact" method="POST" class="bg-slate-800 p-6 md:p-8 rounded-xl border border-slate-700 space-y-4">
+            <div class="grid md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium mb-1 text-slate-300">ชื่อของคุณ *</label>
+                    <input type="text" name="name" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-1 text-slate-300">อีเมลติดต่อ *</label>
+                    <input type="email" name="email" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-indigo-500">
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1 text-slate-300">หัวข้อสอบถาม</label>
+                <input type="text" name="subject" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-indigo-500">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1 text-slate-300">รายละเอียดข้อความ *</label>
+                <textarea name="message" rows="4" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-indigo-500"></textarea>
+            </div>
+            <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-lg transition shadow-md">
+                <i class="fas fa-paper-plane mr-2"></i> ส่งข้อความหาแอดมิน
+            </button>
+        </form>
+    </div>
+</section>
+{% endblock %}

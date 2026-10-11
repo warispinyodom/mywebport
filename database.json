@@ -1,0 +1,15 @@
+{
+  "admin": {
+    "username": "admin",
+    "password": "MySecurePassword123"
+  },
+  "profile": {
+    "name": "ชื่อ-นามสกุลของคุณ",
+    "title": "Full Stack Developer / Software Engineer",
+    "bio": "มุ่งมั่นพัฒนาเว็บแอปพลิเคชันที่มีคุณภาพ ปรับแต่งได้ตามโจทย์ และใช้งานง่าย",
+    "skills": ["Python", "Flask", "JavaScript", "Tailwind CSS", "Firebase", "Git"],
+    "github": "https://github.com",
+    "linkedin": "https://linkedin.com",
+    "email": "your.email@example.com"
+  }
+}

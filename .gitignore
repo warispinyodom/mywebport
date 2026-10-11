@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.env
+
+# Firebase Key
+serviceAccountKey.json
+
+# IDE
+.vscode/
+.idea/
