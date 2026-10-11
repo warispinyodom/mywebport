@@ -43,14 +43,38 @@ def init_firebase():
 
 init_firebase()
 
+# --- ส่งตัวแปร profile ให้กับทุกๆ หน้า Template อัตโนมัติ ---
+@app.context_processor
+def inject_profile():
+    default_profile = {
+        'name': 'ชื่อ-นามสกุลของคุณ',
+        'title': 'Full Stack Developer / Software Engineer',
+        'bio': 'มุ่งมั่นพัฒนาเว็บแอปพลิเคชันที่มีคุณภาพ ปรับแต่งได้ตามโจทย์ และใช้งานง่าย',
+        'skills': ['Python', 'Flask', 'JavaScript', 'Tailwind CSS', 'Firebase', 'Docker', 'Git'],
+        'github': 'https://github.com',
+        'linkedin': 'https://linkedin.com',
+        'email': 'your.email@example.com',
+        'avatar_url': ''
+    }
+    try:
+        profile_db = db.reference('profile').get()
+        if profile_db and isinstance(profile_db, dict):
+            profile = {**default_profile, **profile_db}
+        else:
+            profile = default_profile
+    except Exception as e:
+        print(f"Context Processor Profile Error: {e}")
+        profile = default_profile
+
+    return dict(profile=profile)
+
 # --- ฟังก์ชันอัปโหลดรูปภาพเข้า Firebase Storage ---
-def upload_image_to_storage(file_obj):
+def upload_image_to_storage(file_obj, folder='projects'):
     if not file_obj or file_obj.filename == '':
         return None
     try:
         filename = secure_filename(file_obj.filename)
-        # สร้างชื่อไฟล์สุ่มป้องกันชื่อซ้ำ
-        unique_name = f"projects/{uuid.uuid4().hex}_{filename}"
+        unique_name = f"{folder}/{uuid.uuid4().hex}_{filename}"
         
         bucket = storage.bucket()
         blob = bucket.blob(unique_name)
@@ -58,7 +82,6 @@ def upload_image_to_storage(file_obj):
             file_obj.read(),
             content_type=file_obj.content_type
         )
-        # ตั้งค่าสิทธิ์ให้อ่านได้สาธารณะ
         blob.make_public()
         return blob.public_url
     except Exception as e:
@@ -90,15 +113,26 @@ def home():
     except Exception as e:
         print(f"Error fetching projects: {e}")
 
-    profile = {
+    # ดึงข้อมูลประวัติจาก Firebase (โหนด profile)
+    default_profile = {
         'name': 'ชื่อ-นามสกุลของคุณ',
         'title': 'Full Stack Developer / Software Engineer',
         'bio': 'มุ่งมั่นพัฒนาเว็บแอปพลิเคชันที่มีคุณภาพ ปรับแต่งได้ตามโจทย์ และใช้งานง่าย',
         'skills': ['Python', 'Flask', 'JavaScript', 'Tailwind CSS', 'Firebase', 'Docker', 'Git'],
         'github': 'https://github.com',
         'linkedin': 'https://linkedin.com',
-        'email': 'your.email@example.com'
+        'email': 'your.email@example.com',
+        'avatar_url': ''
     }
+    try:
+        profile_db = db.reference('profile').get()
+        if profile_db and isinstance(profile_db, dict):
+            profile = {**default_profile, **profile_db}
+        else:
+            profile = default_profile
+    except Exception as e:
+        print(f"Error fetching profile: {e}")
+        profile = default_profile
 
     return render_template('index.html', projects=projects, profile=profile)
 
@@ -162,7 +196,7 @@ def logout():
     flash('ออกจากระบบเรียบร้อยแล้ว', 'info')
     return redirect(url_for('home'))
 
-# --- ADMIN ROUTES (CRUD + File Upload) ---
+# --- ADMIN ROUTES ---
 @app.route('/admin')
 @admin_required
 def admin_dashboard():
@@ -182,19 +216,61 @@ def admin_dashboard():
             messages.append(v)
         messages.sort(key=lambda x: x.get('created_at', ''), reverse=True)
 
-    return render_template('admin/dashboard.html', projects=projects, messages=messages)
+    profile = db.reference('profile').get() or {}
+
+    return render_template('admin/dashboard.html', projects=projects, messages=messages, profile=profile)
+
+# --- ADMIN: จัดการข้อมูลส่วนตัว (Edit Profile) ---
+@app.route('/admin/profile', methods=['GET', 'POST'])
+@admin_required
+def edit_profile():
+    ref = db.reference('profile')
+    current_profile = ref.get() or {}
+
+    if request.method == 'POST':
+        avatar_url = current_profile.get('avatar_url', '') if isinstance(current_profile, dict) else ''
+        file = request.files.get('avatar_file')
+        
+        if file and file.filename != '':
+            new_avatar = upload_image_to_storage(file, folder='avatars')
+            if new_avatar:
+                avatar_url = new_avatar
+        elif request.form.get('avatar_url'):
+            avatar_url = request.form.get('avatar_url')
+
+        skills = [s.strip() for s in request.form.get('skills', '').split(',') if s.strip()]
+
+        updated_data = {
+            'name': request.form.get('name', ''),
+            'title': request.form.get('title', ''),
+            'bio': request.form.get('bio', ''),
+            'skills': skills,
+            'github': request.form.get('github', ''),
+            'linkedin': request.form.get('linkedin', ''),
+            'email': request.form.get('email', ''),
+            'avatar_url': avatar_url,
+            'updated_at': datetime.utcnow().isoformat()
+        }
+        ref.set(updated_data)
+        flash('อัปเดตข้อมูลส่วนตัวเรียบร้อยแล้ว!', 'success')
+        return redirect(url_for('admin_dashboard'))
+
+    if isinstance(current_profile, dict):
+        current_profile['skills_str'] = ', '.join(current_profile.get('skills', []))
+    else:
+        current_profile = {'skills_str': ''}
+
+    return render_template('admin/profile_form.html', profile=current_profile)
 
 @app.route('/admin/project/add', methods=['GET', 'POST'])
 @admin_required
 def add_project():
     if request.method == 'POST':
-        # ตรวจสอบการอัปโหลดไฟล์รูปภาพ
         image_url = None
         file = request.files.get('image_file')
         if file and file.filename != '':
-            image_url = upload_image_to_storage(file)
+            image_url = upload_image_to_storage(file, folder='projects')
 
-        # หากไม่ได้อัปโหลดไฟล์ ให้ดึงค่าจากช่อง URL ปกติ
         if not image_url:
             image_url = request.form.get('image_url') or 'https://via.placeholder.com/600x400?text=No+Image'
 
@@ -229,9 +305,8 @@ def edit_project(project_id):
         image_url = project.get('image_url')
         file = request.files.get('image_file')
         
-        # หากมีการแนบไฟล์รูปใหม่เข้ามา
         if file and file.filename != '':
-            new_image_url = upload_image_to_storage(file)
+            new_image_url = upload_image_to_storage(file, folder='projects')
             if new_image_url:
                 image_url = new_image_url
         elif request.form.get('image_url'):

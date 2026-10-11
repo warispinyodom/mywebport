@@ -1,14 +1,22 @@
 {% extends 'base.html' %}
-{% block title %}หน้าหลัก - ผลงานและประวัติ{% endblock %}
+{% block title %}{{ profile.name }} - Portfolio{% endblock %}
 
 {% block content %}
 <!-- Hero Section -->
 <section id="about" class="py-20 text-center bg-gradient-to-b from-slate-900 to-slate-800 border-b border-slate-800">
     <div class="max-w-4xl mx-auto px-4">
-        <div class="w-32 h-32 mx-auto rounded-full bg-indigo-500 flex items-center justify-center text-4xl font-bold mb-6 shadow-lg shadow-indigo-500/30">
-            💻
+        <!-- รูปโปรไฟล์ -->
+        <div class="mb-6">
+            {% if profile.avatar_url %}
+                <img src="{{ profile.avatar_url }}" alt="{{ profile.name }}" class="w-32 h-32 mx-auto rounded-full object-cover border-4 border-indigo-500/80 shadow-lg shadow-indigo-500/30">
+            {% else %}
+                <div class="w-32 h-32 mx-auto rounded-full bg-indigo-500 flex items-center justify-center text-4xl font-bold shadow-lg shadow-indigo-500/30">
+                    💻
+                </div>
+            {% endif %}
         </div>
-        <h1 class="text-4xl md:text-5xl font-extrabold mb-3">{{ profile.name }}</h1>
+
+        <h1 class="text-4xl md:text-5xl font-extrabold mb-3 text-white">{{ profile.name }}</h1>
         <p class="text-xl text-indigo-400 mb-6 font-medium">{{ profile.title }}</p>
         <p class="text-slate-300 max-w-2xl mx-auto leading-relaxed mb-8">{{ profile.bio }}</p>
         
@@ -19,9 +27,26 @@
             {% endfor %}
         </div>
 
-        <div class="flex justify-center space-x-4">
+        <!-- Social & Contact Links -->
+        <div class="flex flex-wrap justify-center items-center gap-4">
             <a href="#contact" class="bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-6 py-2.5 rounded-lg transition shadow-md">ส่งข้อความติดต่อ</a>
             <a href="#projects" class="bg-slate-700 hover:bg-slate-600 text-white font-medium px-6 py-2.5 rounded-lg transition">ดูผลงานทั้งหมด</a>
+            
+            {% if profile.github %}
+                <a href="{{ profile.github }}" target="_blank" class="bg-slate-800 hover:bg-slate-700 text-slate-200 p-2.5 rounded-lg border border-slate-700 transition" title="GitHub">
+                    <i class="fab fa-github text-xl"></i>
+                </a>
+            {% endif %}
+            {% if profile.linkedin %}
+                <a href="{{ profile.linkedin }}" target="_blank" class="bg-slate-800 hover:bg-slate-700 text-slate-200 p-2.5 rounded-lg border border-slate-700 transition" title="LinkedIn">
+                    <i class="fab fa-linkedin text-xl"></i>
+                </a>
+            {% endif %}
+            {% if profile.email %}
+                <a href="mailto:{{ profile.email }}" class="bg-slate-800 hover:bg-slate-700 text-slate-200 p-2.5 rounded-lg border border-slate-700 transition" title="Email">
+                    <i class="fas fa-envelope text-xl"></i>
+                </a>
+            {% endif %}
         </div>
     </div>
 </section>
@@ -51,14 +76,12 @@
                 </div>
                 
                 <div>
-                    <!-- Tags -->
                     <div class="flex flex-wrap gap-1 mb-4">
                         {% for tag in project.tags %}
                             <span class="text-xs bg-slate-900 text-slate-400 px-2 py-0.5 rounded">#{{ tag }}</span>
                         {% endfor %}
                     </div>
 
-                    <!-- Links -->
                     <div class="flex space-x-3 pt-3 border-t border-slate-700/60">
                         {% if project.demo_url %}
                             <a href="{{ project.demo_url }}" target="_blank" class="flex-1 text-center bg-indigo-600/80 hover:bg-indigo-600 text-xs py-2 rounded text-white font-semibold transition">
