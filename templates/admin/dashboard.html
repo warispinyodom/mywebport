@@ -2,53 +2,58 @@
 {% block title %}Admin Dashboard{% endblock %}
 
 {% block content %}
-<div class="max-w-6xl mx-auto px-4 py-8">
-    <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+<div class="max-w-6xl mx-auto px-4 py-6 md:py-8">
+    <!-- Action Header -->
+    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4 bg-slate-800/60 p-5 rounded-2xl border border-slate-700/80">
         <div>
-            <h1 class="text-3xl font-bold">แผงควบคุมผู้ดูแลระบบ (Admin Dashboard)</h1>
-            <p class="text-slate-400 text-sm">จัดการผลงาน ประวัติส่วนตัว และ อ่านข้อความติดต่อ</p>
+            <h1 class="text-2xl md:text-3xl font-extrabold text-white">แผงควบคุมแอดมิน</h1>
+            <p class="text-slate-400 text-xs md:text-sm mt-1">จัดการข้อมูลส่วนตัว เพิ่มผลงาน และตอบกลับข้อความ</p>
         </div>
-        <div class="flex space-x-3">
-            <a href="/admin/profile" class="bg-slate-700 hover:bg-slate-600 text-white font-semibold px-4 py-2 rounded-lg transition border border-slate-600">
-                <i class="fas fa-user-gear mr-1"></i> จัดการข้อมูลส่วนตัว
+        <div class="flex flex-col sm:flex-row w-full sm:w-auto gap-2.5">
+            <a href="/admin/profile" class="w-full sm:w-auto text-center bg-slate-700 hover:bg-slate-600 text-white font-semibold px-4 py-2.5 rounded-xl transition border border-slate-600 text-xs md:text-sm">
+                <i class="fas fa-user-gear mr-1.5"></i> จัดการข้อมูลส่วนตัว
             </a>
-            <a href="/admin/project/add" class="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-4 py-2 rounded-lg transition">
-                <i class="fas fa-plus mr-1"></i> เพิ่มผลงานใหม่
+            <a href="/admin/project/add" class="w-full sm:w-auto text-center bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-4 py-2.5 rounded-xl transition shadow-md shadow-indigo-600/20 text-xs md:text-sm">
+                <i class="fas fa-plus mr-1.5"></i> เพิ่มผลงานใหม่
             </a>
         </div>
     </div>
 
     <!-- รายการผลงาน -->
-    <div class="bg-slate-800 rounded-xl border border-slate-700 p-6 mb-10 shadow-lg">
-        <h2 class="text-xl font-bold mb-4 text-indigo-400"><i class="fas fa-layer-group mr-2"></i> รายการผลงานทั้งหมด ({{ projects|length }})</h2>
-        <div class="overflow-x-auto">
-            <table class="w-full text-left text-sm text-slate-300">
-                <thead class="bg-slate-900/60 uppercase text-xs text-slate-400">
+    <div class="bg-slate-800 rounded-2xl border border-slate-700/80 p-5 md:p-6 mb-8 shadow-xl">
+        <h2 class="text-lg md:text-xl font-bold mb-4 text-indigo-400 flex items-center">
+            <i class="fas fa-layer-group mr-2"></i> รายการผลงานทั้งหมด ({{ projects|length }})
+        </h2>
+        
+        <!-- Responsive Scrollable Table -->
+        <div class="overflow-x-auto rounded-xl border border-slate-700/50">
+            <table class="w-full text-left text-xs md:text-sm text-slate-300 min-w-[500px]">
+                <thead class="bg-slate-900/80 uppercase text-[11px] text-slate-400 font-bold">
                     <tr>
-                        <th class="p-3">ชื่อผลงาน</th>
-                        <th class="p-3">หมวดหมู่</th>
-                        <th class="p-3">สถานะ</th>
-                        <th class="p-3 text-right">จัดการ</th>
+                        <th class="p-3.5">ชื่อผลงาน</th>
+                        <th class="p-3.5">หมวดหมู่</th>
+                        <th class="p-3.5">สถานะ</th>
+                        <th class="p-3.5 text-right">จัดการ</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-slate-700/50">
+                <tbody class="divide-y divide-slate-700/60 bg-slate-800/40">
                     {% for project in projects %}
-                    <tr class="hover:bg-slate-700/30">
-                        <td class="p-3 font-semibold text-white">{{ project.title }}</td>
-                        <td class="p-3"><span class="bg-slate-700 px-2 py-0.5 rounded text-xs">{{ project.category }}</span></td>
-                        <td class="p-3">
-                            {% if project.is_featured %}<span class="text-amber-400 text-xs">⭐ แนะนำ</span>{% else %}<span class="text-slate-500 text-xs">ทั่วไป</span>{% endif %}
+                    <tr class="hover:bg-slate-700/30 transition">
+                        <td class="p-3.5 font-semibold text-white">{{ project.title }}</td>
+                        <td class="p-3.5"><span class="bg-slate-700 px-2 py-0.5 rounded text-[11px] font-medium text-slate-200">{{ project.category }}</span></td>
+                        <td class="p-3.5">
+                            {% if project.is_featured %}<span class="text-amber-400 text-xs font-semibold">⭐ แนะนำ</span>{% else %}<span class="text-slate-500 text-xs">ทั่วไป</span>{% endif %}
                         </td>
-                        <td class="p-3 text-right space-x-2">
-                            <a href="/admin/project/edit/{{ project.id }}" class="text-indigo-400 hover:text-indigo-300 font-medium">แก้ไข</a>
+                        <td class="p-3.5 text-right whitespace-nowrap space-x-2">
+                            <a href="/admin/project/edit/{{ project.id }}" class="text-indigo-400 hover:text-indigo-300 font-semibold px-2 py-1 rounded bg-indigo-950/50 border border-indigo-800/50">แก้ไข</a>
                             <form action="/admin/project/delete/{{ project.id }}" method="POST" class="inline" onsubmit="return confirm('ยืนยันลบผลงานนี้?');">
-                                <button type="submit" class="text-red-400 hover:text-red-300 font-medium ml-2">ลบ</button>
+                                <button type="submit" class="text-red-400 hover:text-red-300 font-semibold px-2 py-1 rounded bg-red-950/50 border border-red-800/50">ลบ</button>
                             </form>
                         </td>
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="4" class="p-4 text-center text-slate-500">ยังไม่มีข้อมูลผลงาน</td>
+                        <td colspan="4" class="p-6 text-center text-slate-500">ยังไม่มีข้อมูลผลงานในระบบ</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -57,35 +62,37 @@
     </div>
 
     <!-- ข้อความติดต่อ -->
-    <div class="bg-slate-800 rounded-xl border border-slate-700 p-6 shadow-lg">
-        <h2 class="text-xl font-bold mb-4 text-indigo-400"><i class="fas fa-envelope mr-2"></i> ข้อความที่ได้รับ ({{ messages|length }})</h2>
-        <div class="space-y-4">
+    <div class="bg-slate-800 rounded-2xl border border-slate-700/80 p-5 md:p-6 shadow-xl">
+        <h2 class="text-lg md:text-xl font-bold mb-4 text-indigo-400 flex items-center">
+            <i class="fas fa-envelope mr-2"></i> ข้อความที่ได้รับ ({{ messages|length }})
+        </h2>
+        <div class="space-y-3.5">
             {% for msg in messages %}
-            <div class="p-4 rounded-lg bg-slate-900 border border-slate-700/80 flex flex-col md:flex-row justify-between gap-4">
-                <div>
-                    <div class="flex items-center space-x-2 mb-1">
-                        <span class="font-bold text-white">{{ msg.name }}</span>
+            <div class="p-4 rounded-xl bg-slate-900/90 border border-slate-700/80 flex flex-col md:flex-row justify-between gap-3">
+                <div class="space-y-1">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <span class="font-bold text-white text-sm md:text-base">{{ msg.name }}</span>
                         <span class="text-xs text-slate-400">({{ msg.email }})</span>
                         {% if not msg.is_read %}
-                            <span class="bg-red-600 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">ใหม่</span>
+                            <span class="bg-red-600 text-white text-[10px] px-2 py-0.5 rounded-full font-bold shadow-sm">ใหม่</span>
                         {% endif %}
                     </div>
-                    <div class="font-semibold text-indigo-300 text-sm mb-1">หัวข้อ: {{ msg.subject }}</div>
-                    <p class="text-slate-300 text-sm leading-relaxed">{{ msg.message }}</p>
+                    <div class="font-semibold text-indigo-300 text-xs md:text-sm">หัวข้อ: {{ msg.subject }}</div>
+                    <p class="text-slate-300 text-xs md:text-sm leading-relaxed pt-1">{{ msg.message }}</p>
                 </div>
-                <div class="flex items-center space-x-2 self-end md:self-start">
+                <div class="flex items-center gap-2 self-end md:self-start pt-2 md:pt-0">
                     {% if not msg.is_read %}
                     <form action="/admin/message/read/{{ msg.id }}" method="POST">
-                        <button class="text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 px-3 py-1 rounded">อ่านแล้ว</button>
+                        <button class="text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 px-3 py-1.5 rounded-lg font-medium transition">อ่านแล้ว</button>
                     </form>
                     {% endif %}
                     <form action="/admin/message/delete/{{ msg.id }}" method="POST" onsubmit="return confirm('ลบข้อความนี้?');">
-                        <button class="text-xs bg-red-900/60 hover:bg-red-800 text-red-200 px-3 py-1 rounded">ลบ</button>
+                        <button class="text-xs bg-red-900/60 hover:bg-red-800 text-red-200 px-3 py-1.5 rounded-lg font-medium transition">ลบ</button>
                     </form>
                 </div>
             </div>
             {% else %}
-            <div class="text-slate-500 text-center py-6">ยังไม่มีข้อความติดต่อเข้ามา</div>
+            <div class="text-slate-500 text-center py-8">ยังไม่มีข้อความติดต่อเข้ามา</div>
             {% endfor %}
         </div>
     </div>
