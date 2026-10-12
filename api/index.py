@@ -1,10 +1,12 @@
 import os
 import json
 import uuid
+import secrets
 import functools
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, flash, session
 from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
 import firebase_admin
 from firebase_admin import credentials, db, storage
 from dotenv import load_dotenv
@@ -12,83 +14,105 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__, template_folder='../templates', static_folder='../static')
-app.secret_key = os.getenv('FLASK_SECRET_KEY', 'default-dev-secret-key')
 
-# URL และ Storage Bucket
+# --- OWASP SESSION SECURITY CONFIGURATION ---
+app.secret_key = os.getenv('FLASK_SECRET_KEY', 'my-portfolio-static-production-secret-key-2026-v1')
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=2)
+
 DATABASE_URL = os.getenv('FIREBASE_DATABASE_URL', 'https://fluke-cyberport-default-rtdb.asia-southeast1.firebasedatabase.app')
 STORAGE_BUCKET = os.getenv('FIREBASE_STORAGE_BUCKET', 'fluke-cyberport.firebasestorage.app')
 
-# --- เชื่อมต่อ Firebase ---
+FAILED_ATTEMPTS = {}
+
+# --- OWASP SECURITY HEADERS ---
+@app.after_request
+def add_security_headers(response):
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    return response
+
+# --- OWASP ANTI-CSRF TOKEN SYSTEM ---
+def generate_csrf_token():
+    if '_csrf_token' not in session:
+        session['_csrf_token'] = secrets.token_hex(32)
+    return session['_csrf_token']
+
+app.jinja_env.globals['csrf_token'] = generate_csrf_token
+
+def verify_csrf():
+    if request.method in ['POST', 'PUT', 'DELETE']:
+        token = session.get('_csrf_token')
+        form_token = request.form.get('csrf_token') or request.headers.get('X-CSRF-Token')
+        
+        if not token and form_token:
+            session['_csrf_token'] = form_token
+            token = form_token
+
+        if not token or not form_token or token != form_token:
+            flash('🔒 คำขอไม่ถูกต้องหรือหมดอายุ (CSRF Validation Failed)', 'danger')
+            return False
+    return True
+
+# --- FIREBASE INIT ---
 def init_firebase():
     if not firebase_admin._apps:
         local_key_path = 'serviceAccountKey.json'
-        config = {
-            'databaseURL': DATABASE_URL,
-            'storageBucket': STORAGE_BUCKET
-        }
+        config = {'databaseURL': DATABASE_URL, 'storageBucket': STORAGE_BUCKET}
         
         if os.path.exists(local_key_path):
             cred = credentials.Certificate(local_key_path)
             firebase_admin.initialize_app(cred, config)
-            print("🟢 Firebase: เชื่อมต่อ Realtime Database & Storage ผ่าน serviceAccountKey.json")
         else:
             cred_json = os.getenv('FIREBASE_CREDENTIALS')
             if cred_json:
                 cred_dict = json.loads(cred_json)
+                if 'private_key' in cred_dict:
+                    cred_dict['private_key'] = cred_dict['private_key'].replace('\\n', '\n')
                 cred = credentials.Certificate(cred_dict)
                 firebase_admin.initialize_app(cred, config)
-                print("☁️ Firebase: เชื่อมต่อผ่าน Vercel Environment Variable")
             else:
                 raise RuntimeError("❌ ไม่พบสิทธิ์การเชื่อมต่อ Firebase!")
 
 init_firebase()
 
-# --- ส่งตัวแปร profile ให้กับทุกๆ หน้า Template อัตโนมัติ ---
 @app.context_processor
 def inject_profile():
     default_profile = {
-        'name': 'ชื่อ-นามสกุลของคุณ',
-        'title': 'Full Stack Developer / Software Engineer',
+        'name': 'waris pinyodom',
+        'title': 'Cyber Security / Full Stack Developer',
         'bio': 'มุ่งมั่นพัฒนาเว็บแอปพลิเคชันที่มีคุณภาพ ปรับแต่งได้ตามโจทย์ และใช้งานง่าย',
-        'skills': ['Python', 'Flask', 'JavaScript', 'Tailwind CSS', 'Firebase', 'Docker', 'Git'],
-        'github': 'https://github.com',
+        'skills': ['Python', 'Flask', 'JavaScript', 'Firebase', 'Tailwind CSS'],
+        'github': 'https://github.com/warispinyodom/',
         'linkedin': 'https://linkedin.com',
-        'email': 'your.email@example.com',
+        'email': 'flukewaris48@gmail.com',
         'avatar_url': ''
     }
     try:
         profile_db = db.reference('profile').get()
-        if profile_db and isinstance(profile_db, dict):
-            profile = {**default_profile, **profile_db}
-        else:
-            profile = default_profile
-    except Exception as e:
-        print(f"Context Processor Profile Error: {e}")
+        profile = {**default_profile, **profile_db} if isinstance(profile_db, dict) else default_profile
+    except Exception:
         profile = default_profile
-
     return dict(profile=profile)
 
-# --- ฟังก์ชันอัปโหลดรูปภาพเข้า Firebase Storage ---
 def upload_image_to_storage(file_obj, folder='projects'):
     if not file_obj or file_obj.filename == '':
         return None
     try:
         filename = secure_filename(file_obj.filename)
         unique_name = f"{folder}/{uuid.uuid4().hex}_{filename}"
-        
         bucket = storage.bucket()
         blob = bucket.blob(unique_name)
-        blob.upload_from_string(
-            file_obj.read(),
-            content_type=file_obj.content_type
-        )
+        blob.upload_from_string(file_obj.read(), content_type=file_obj.content_type)
         blob.make_public()
         return blob.public_url
     except Exception as e:
-        print(f"Error uploading image to Firebase Storage: {e}")
+        print(f"Error uploading image: {e}")
         return None
 
-# --- Admin Authentication Decorator ---
 def admin_required(f):
     @functools.wraps(f)
     def decorated_function(*args, **kwargs):
@@ -103,45 +127,25 @@ def admin_required(f):
 def home():
     projects = []
     try:
-        ref = db.reference('projects')
-        data = ref.get()
-        if data and isinstance(data, dict):
+        data = db.reference('projects').get()
+        if isinstance(data, dict):
             for key, val in data.items():
                 val['id'] = key
                 projects.append(val)
             projects.sort(key=lambda x: x.get('created_at', ''), reverse=True)
     except Exception as e:
         print(f"Error fetching projects: {e}")
-
-    # ดึงข้อมูลประวัติจาก Firebase (โหนด profile)
-    default_profile = {
-        'name': 'ชื่อ-นามสกุลของคุณ',
-        'title': 'Full Stack Developer / Software Engineer',
-        'bio': 'มุ่งมั่นพัฒนาเว็บแอปพลิเคชันที่มีคุณภาพ ปรับแต่งได้ตามโจทย์ และใช้งานง่าย',
-        'skills': ['Python', 'Flask', 'JavaScript', 'Tailwind CSS', 'Firebase', 'Docker', 'Git'],
-        'github': 'https://github.com',
-        'linkedin': 'https://linkedin.com',
-        'email': 'your.email@example.com',
-        'avatar_url': ''
-    }
-    try:
-        profile_db = db.reference('profile').get()
-        if profile_db and isinstance(profile_db, dict):
-            profile = {**default_profile, **profile_db}
-        else:
-            profile = default_profile
-    except Exception as e:
-        print(f"Error fetching profile: {e}")
-        profile = default_profile
-
-    return render_template('index.html', projects=projects, profile=profile)
+    return render_template('index.html', projects=projects)
 
 @app.route('/contact', methods=['POST'])
 def contact():
-    name = request.form.get('name')
-    email = request.form.get('email')
-    subject = request.form.get('subject')
-    message = request.form.get('message')
+    if not verify_csrf():
+        return redirect(url_for('home') + '#contact')
+
+    name = request.form.get('name', '').strip()
+    email = request.form.get('email', '').strip()
+    subject = request.form.get('subject', '').strip()
+    message = request.form.get('message', '').strip()
 
     if not name or not email or not message:
         flash('กรุณากรอกข้อมูลให้ครบถ้วน', 'danger')
@@ -158,35 +162,88 @@ def contact():
     flash('ส่งข้อความเรียบร้อยแล้ว ขอบคุณที่ติดต่อมาครับ!', 'success')
     return redirect(url_for('home') + '#contact')
 
-# --- AUTHENTICATION ---
+# --- AUTHENTICATION (OWASP SECURED & AUTO-MIGRATION) ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if session.get('is_admin'):
         return redirect(url_for('admin_dashboard'))
 
     if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
+        if not verify_csrf():
+            return redirect(url_for('login'))
+
+        client_ip = request.remote_addr or '127.0.0.1'
+        now = datetime.utcnow()
+
+        ip_attempts = FAILED_ATTEMPTS.get(client_ip, {'count': 0, 'lockout_until': None})
+        if ip_attempts['lockout_until'] and now < ip_attempts['lockout_until']:
+            remaining = int((ip_attempts['lockout_until'] - now).total_seconds() / 60) + 1
+            flash(f'⚠️ พยายามเข้าสู่ระบบผิดพลาดเกินกำหนด กรุณาลองใหม่ในอีก {remaining} นาที', 'danger')
+            return render_template('login.html')
+
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '').strip()
+
+        authenticated = False
 
         try:
             admin_data = db.reference('admin').get()
-            if admin_data and isinstance(admin_data, dict):
-                if username == admin_data.get('username') and password == admin_data.get('password'):
-                    session['is_admin'] = True
-                    flash('เข้าสู่ระบบสำเร็จ!', 'success')
-                    return redirect(url_for('admin_dashboard'))
+            if isinstance(admin_data, dict):
+                db_user = admin_data.get('username')
+                db_hash = admin_data.get('password_hash')
+                db_plain = admin_data.get('password')
+
+                if username == db_user:
+                    # 1. ตรวจสอบจาก password_hash
+                    if db_hash:
+                        # กรณีเป็น Hash รูปแบบมาตรฐาน
+                        if isinstance(db_hash, str) and db_hash.startswith(('scrypt:', 'pbkdf2:', 'argon2:')):
+                            if check_password_hash(db_hash, password):
+                                authenticated = True
+                        # กรณีใส่เป็นข้อความธรรมดา (Plaintext) ในช่อง password_hash
+                        elif db_hash == password:
+                            authenticated = True
+                            # แปลงเป็น scrypt hash และอัปเดตลง Firebase ทันที
+                            new_hash = generate_password_hash(password, method='scrypt')
+                            db.reference('admin').update({'password_hash': new_hash})
+
+                    # 2. ตรวจสอบจาก password (ข้อความธรรมดา)
+                    if not authenticated and db_plain and db_plain == password:
+                        authenticated = True
+                        new_hash = generate_password_hash(password, method='scrypt')
+                        db.reference('admin').update({
+                            'password_hash': new_hash,
+                            'password': None
+                        })
         except Exception as e:
-            print(f"Error fetching admin: {e}")
+            print(f"Error authenticating admin: {e}")
 
-        admin_user = os.getenv('ADMIN_USERNAME', 'admin')
-        admin_pass = os.getenv('ADMIN_PASSWORD', 'admin123')
+        # 3. Fallback กับ .env
+        if not authenticated:
+            env_user = os.getenv('ADMIN_USERNAME', 'admin')
+            env_pass = os.getenv('ADMIN_PASSWORD', 'admin123')
+            if username == env_user and password == env_pass:
+                authenticated = True
 
-        if username == admin_user and password == admin_pass:
+        if authenticated:
+            FAILED_ATTEMPTS.pop(client_ip, None)
+
+            session.clear()
+            session.permanent = True
             session['is_admin'] = True
+            session['_csrf_token'] = secrets.token_hex(32)
+
             flash('เข้าสู่ระบบสำเร็จ!', 'success')
             return redirect(url_for('admin_dashboard'))
         else:
-            flash('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง', 'danger')
+            ip_attempts['count'] += 1
+            if ip_attempts['count'] >= 5:
+                ip_attempts['lockout_until'] = now + timedelta(minutes=15)
+                flash('⚠️ พยายามเข้าสู่ระบบผิดพลาดเกิน 5 ครั้ง! ระบบถูกระงับชั่วคราว 15 นาที', 'danger')
+            else:
+                flash('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง', 'danger')
+
+            FAILED_ATTEMPTS[client_ip] = ip_attempts
 
     return render_template('login.html')
 
@@ -201,26 +258,16 @@ def logout():
 @admin_required
 def admin_dashboard():
     projects_dict = db.reference('projects').get() or {}
-    projects = []
-    if isinstance(projects_dict, dict):
-        for k, v in projects_dict.items():
-            v['id'] = k
-            projects.append(v)
-        projects.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+    projects = [{'id': k, **v} for k, v in projects_dict.items()] if isinstance(projects_dict, dict) else []
+    projects.sort(key=lambda x: x.get('created_at', ''), reverse=True)
 
     messages_dict = db.reference('messages').get() or {}
-    messages = []
-    if isinstance(messages_dict, dict):
-        for k, v in messages_dict.items():
-            v['id'] = k
-            messages.append(v)
-        messages.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+    messages = [{'id': k, **v} for k, v in messages_dict.items()] if isinstance(messages_dict, dict) else []
+    messages.sort(key=lambda x: x.get('created_at', ''), reverse=True)
 
     profile = db.reference('profile').get() or {}
-
     return render_template('admin/dashboard.html', projects=projects, messages=messages, profile=profile)
 
-# --- ADMIN: จัดการข้อมูลส่วนตัว (Edit Profile) ---
 @app.route('/admin/profile', methods=['GET', 'POST'])
 @admin_required
 def edit_profile():
@@ -228,9 +275,11 @@ def edit_profile():
     current_profile = ref.get() or {}
 
     if request.method == 'POST':
+        if not verify_csrf():
+            return redirect(url_for('edit_profile'))
+
         avatar_url = current_profile.get('avatar_url', '') if isinstance(current_profile, dict) else ''
         file = request.files.get('avatar_file')
-        
         if file and file.filename != '':
             new_avatar = upload_image_to_storage(file, folder='avatars')
             if new_avatar:
@@ -240,18 +289,17 @@ def edit_profile():
 
         skills = [s.strip() for s in request.form.get('skills', '').split(',') if s.strip()]
 
-        updated_data = {
-            'name': request.form.get('name', ''),
-            'title': request.form.get('title', ''),
-            'bio': request.form.get('bio', ''),
+        ref.set({
+            'name': request.form.get('name', '').strip(),
+            'title': request.form.get('title', '').strip(),
+            'bio': request.form.get('bio', '').strip(),
             'skills': skills,
-            'github': request.form.get('github', ''),
-            'linkedin': request.form.get('linkedin', ''),
-            'email': request.form.get('email', ''),
+            'github': request.form.get('github', '').strip(),
+            'linkedin': request.form.get('linkedin', '').strip(),
+            'email': request.form.get('email', '').strip(),
             'avatar_url': avatar_url,
             'updated_at': datetime.utcnow().isoformat()
-        }
-        ref.set(updated_data)
+        })
         flash('อัปเดตข้อมูลส่วนตัวเรียบร้อยแล้ว!', 'success')
         return redirect(url_for('admin_dashboard'))
 
@@ -266,6 +314,9 @@ def edit_profile():
 @admin_required
 def add_project():
     if request.method == 'POST':
+        if not verify_csrf():
+            return redirect(url_for('add_project'))
+
         image_url = None
         file = request.files.get('image_file')
         if file and file.filename != '':
@@ -276,12 +327,12 @@ def add_project():
 
         tags = [t.strip() for t in request.form.get('tags', '').split(',') if t.strip()]
         db.reference('projects').push({
-            'title': request.form.get('title'),
-            'category': request.form.get('category', 'Web App'),
-            'description': request.form.get('description'),
+            'title': request.form.get('title', '').strip(),
+            'category': request.form.get('category', 'Web App').strip(),
+            'description': request.form.get('description', '').strip(),
             'image_url': image_url,
-            'demo_url': request.form.get('demo_url'),
-            'github_url': request.form.get('github_url'),
+            'demo_url': request.form.get('demo_url', '').strip(),
+            'github_url': request.form.get('github_url', '').strip(),
             'tags': tags,
             'is_featured': 'is_featured' in request.form,
             'created_at': datetime.utcnow().isoformat()
@@ -302,6 +353,9 @@ def edit_project(project_id):
         return redirect(url_for('admin_dashboard'))
 
     if request.method == 'POST':
+        if not verify_csrf():
+            return redirect(url_for('edit_project', project_id=project_id))
+
         image_url = project.get('image_url')
         file = request.files.get('image_file')
         
@@ -314,12 +368,12 @@ def edit_project(project_id):
 
         tags = [t.strip() for t in request.form.get('tags', '').split(',') if t.strip()]
         ref.update({
-            'title': request.form.get('title'),
-            'category': request.form.get('category'),
-            'description': request.form.get('description'),
+            'title': request.form.get('title', '').strip(),
+            'category': request.form.get('category', '').strip(),
+            'description': request.form.get('description', '').strip(),
             'image_url': image_url,
-            'demo_url': request.form.get('demo_url'),
-            'github_url': request.form.get('github_url'),
+            'demo_url': request.form.get('demo_url', '').strip(),
+            'github_url': request.form.get('github_url', '').strip(),
             'tags': tags,
             'is_featured': 'is_featured' in request.form
         })
@@ -333,21 +387,24 @@ def edit_project(project_id):
 @app.route('/admin/project/delete/<project_id>', methods=['POST'])
 @admin_required
 def delete_project(project_id):
-    db.reference(f'projects/{project_id}').delete()
-    flash('ลบผลงานเรียบร้อยแล้ว', 'info')
+    if verify_csrf():
+        db.reference(f'projects/{project_id}').delete()
+        flash('ลบผลงานเรียบร้อยแล้ว', 'info')
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/admin/message/read/<msg_id>', methods=['POST'])
 @admin_required
 def mark_message_read(msg_id):
-    db.reference(f'messages/{msg_id}').update({'is_read': True})
+    if verify_csrf():
+        db.reference(f'messages/{msg_id}').update({'is_read': True})
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/admin/message/delete/<msg_id>', methods=['POST'])
 @admin_required
 def delete_message(msg_id):
-    db.reference(f'messages/{msg_id}').delete()
-    flash('ลบข้อความเรียบร้อยแล้ว', 'info')
+    if verify_csrf():
+        db.reference(f'messages/{msg_id}').delete()
+        flash('ลบข้อความเรียบร้อยแล้ว', 'info')
     return redirect(url_for('admin_dashboard'))
 
 if __name__ == '__main__':
