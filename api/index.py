@@ -17,6 +17,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 
 load_dotenv()
+load_dotenv('.env.local')
 
 app = Flask(__name__, template_folder='../templates', static_folder='../static')
 
@@ -29,6 +30,22 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=2)
 DATABASE_URL = os.getenv('FIREBASE_DATABASE_URL', 'https://fluke-cyberport-default-rtdb.asia-southeast1.firebasedatabase.app')
 
 FAILED_ATTEMPTS = {}
+
+# --- HELPER PARSE JSON FROM ENV VARS SAFELY ---
+def parse_env_json(env_var_name):
+    raw_val = os.getenv(env_var_name)
+    if not raw_val:
+        return None
+    try:
+        # ตัดอักขระส่วนเกิน และตัด single/double quote ที่ครอบอยู่ออก
+        cleaned = raw_val.strip().strip("'\"")
+        cred_dict = json.loads(cleaned)
+        if isinstance(cred_dict, dict) and 'private_key' in cred_dict:
+            cred_dict['private_key'] = cred_dict['private_key'].replace('\\n', '\n')
+        return cred_dict
+    except Exception as e:
+        print(f"❌ Error parsing env variable [{env_var_name}]: {e}")
+        return None
 
 # --- OWASP SECURITY HEADERS ---
 @app.after_request
@@ -61,96 +78,68 @@ def verify_csrf():
             return False
     return True
 
-# --- FIREBASE REALTIME DATABASE INIT (FLEXIBLE KEY LOOKUP) ---
+# --- FIREBASE REALTIME DATABASE INIT ---
 def init_firebase():
     if not firebase_admin._apps:
         config = {'databaseURL': DATABASE_URL}
         cred = None
 
-        # 1. ค้นหาไฟล์ JSON จากเครื่อง Local (รองรับชื่อไฟล์ทุกรูปแบบ)
-        possible_local_keys = [
-            'firebaseKey.json',
-            'firebase_key.json',
-            'firebase-key.json',
-            'serviceAccountKey.json',
-            'firebaseCredentials.json'
-        ]
+        # 1. ลองอ่านจาก Environment Variables บน Vercel ก่อน
+        for env_key in ['FIREBASE_CREDENTIALS', 'FIREBASE_KEY', 'FIREBASE_SERVICE_ACCOUNT']:
+            cred_dict = parse_env_json(env_key)
+            if cred_dict:
+                cred = credentials.Certificate(cred_dict)
+                print(f"✅ Firebase Loaded successfully from ENV: {env_key}")
+                break
 
-        for key_path in possible_local_keys:
-            if os.path.exists(key_path):
-                try:
-                    cred = credentials.Certificate(key_path)
-                    print(f"✅ Firebase Loaded from local file: {key_path}")
-                    break
-                except Exception as e:
-                    print(f"⚠️ Error reading {key_path}: {e}")
-
-        # 2. ถ้าหาไฟล์ local ไม่เจอ ให้ค้นหาจาก Environment Variables
+        # 2. ถ้าบน Env ไม่มี ให้ถอยมาอ่านจากไฟล์ Local
         if not cred:
-            possible_env_vars = ['FIREBASE_CREDENTIALS', 'FIREBASE_KEY', 'FIREBASE_SERVICE_ACCOUNT']
-            for env_var in possible_env_vars:
-                cred_json = os.getenv(env_var)
-                if cred_json:
+            for local_file in ['serviceAccountKey.json', 'firebaseKey.json', 'firebase_key.json']:
+                if os.path.exists(local_file):
                     try:
-                        cred_dict = json.loads(cred_json)
-                        if 'private_key' in cred_dict:
-                            cred_dict['private_key'] = cred_dict['private_key'].replace('\\n', '\n')
-                        cred = credentials.Certificate(cred_dict)
-                        print(f"✅ Firebase Loaded from env var: {env_var}")
+                        cred = credentials.Certificate(local_file)
+                        print(f"✅ Firebase Loaded successfully from FILE: {local_file}")
                         break
                     except Exception as e:
-                        print(f"⚠️ Error parsing {env_var}: {e}")
+                        print(f"⚠️ Error reading local file {local_file}: {e}")
 
         if cred:
             firebase_admin.initialize_app(cred, config)
         else:
-            raise RuntimeError("❌ ไม่พบสิทธิ์การเชื่อมต่อ Firebase Database! กรุณาเช็กไฟล์ Key หรือตัวแปร FIREBASE_CREDENTIALS / FIREBASE_KEY")
+            raise RuntimeError("❌ ไม่พบสิทธิ์การเชื่อมต่อ Firebase Database! กรุณาตรวจสอบ FIREBASE_CREDENTIALS บน Vercel")
 
 init_firebase()
 
-# --- GOOGLE DRIVE API STORAGE HELPER (FLEXIBLE KEY LOOKUP) ---
+# --- GOOGLE DRIVE API STORAGE HELPER ---
 DRIVE_SCOPES = ['https://www.googleapis.com/auth/drive']
 
 def get_drive_service():
     cred = None
-    
-    # 1. ค้นหาไฟล์ Drive Key บน Local
-    possible_drive_keys = [
-        'googleDriveKey.json',
-        'google_drive_key.json',
-        'driveKey.json',
-        'drive_key.json'
-    ]
 
-    for key_path in possible_drive_keys:
-        if os.path.exists(key_path):
-            try:
-                cred = service_account.Credentials.from_service_account_file(
-                    key_path, scopes=DRIVE_SCOPES
-                )
-                break
-            except Exception:
-                continue
+    # 1. ลองอ่านจาก Environment Variables บน Vercel ก่อน
+    for env_key in ['GOOGLE_DRIVE_CREDENTIALS', 'GOOGLE_DRIVE_KEY', 'DRIVE_CREDENTIALS']:
+        cred_dict = parse_env_json(env_key)
+        if cred_dict:
+            cred = service_account.Credentials.from_service_account_info(
+                cred_dict, scopes=DRIVE_SCOPES
+            )
+            print(f"✅ Google Drive Credentials Loaded from ENV: {env_key}")
+            break
 
-    # 2. ค้นจาก Environment Variables บน Vercel/.env
+    # 2. ถ้าไม่มีให้ถอยมาอ่านจากไฟล์ Local
     if not cred:
-        possible_drive_envs = ['GOOGLE_DRIVE_CREDENTIALS', 'GOOGLE_DRIVE_KEY', 'DRIVE_CREDENTIALS']
-        for env_var in possible_drive_envs:
-            cred_json = os.getenv(env_var)
-            if cred_json:
+        for local_file in ['googleDriveKey.json', 'google_drive_key.json', 'driveKey.json']:
+            if os.path.exists(local_file):
                 try:
-                    cred_dict = json.loads(cred_json)
-                    if 'private_key' in cred_dict:
-                        cred_dict['private_key'] = cred_dict['private_key'].replace('\\n', '\n')
-                    cred = service_account.Credentials.from_service_account_info(
-                        cred_dict, scopes=DRIVE_SCOPES
+                    cred = service_account.Credentials.from_service_account_file(
+                        local_file, scopes=DRIVE_SCOPES
                     )
                     break
                 except Exception:
                     continue
 
     if not cred:
-        raise RuntimeError("❌ ไม่พบสิทธิ์การเชื่อมต่อ Google Drive API! กรุณาเช็กไฟล์ googleDriveKey.json หรือ GOOGLE_DRIVE_CREDENTIALS")
+        raise RuntimeError("❌ ไม่พบสิทธิ์การเชื่อมต่อ Google Drive API! กรุณาตรวจสอบ GOOGLE_DRIVE_CREDENTIALS บน Vercel")
             
     return build('drive', 'v3', credentials=cred, cache_discovery=False)
 
