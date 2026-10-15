@@ -37,14 +37,13 @@ def parse_env_json(env_var_name):
     if not raw_val:
         return None
     try:
-        # ตัดอักขระส่วนเกิน และตัด single/double quote ที่ครอบอยู่ออก
         cleaned = raw_val.strip().strip("'\"")
         cred_dict = json.loads(cleaned)
         if isinstance(cred_dict, dict) and 'private_key' in cred_dict:
             cred_dict['private_key'] = cred_dict['private_key'].replace('\\n', '\n')
         return cred_dict
     except Exception as e:
-        print(f"❌ Error parsing env variable [{env_var_name}]: {e}")
+        print(f"❌ Error parsing env [{env_var_name}]: {e}")
         return None
 
 # --- OWASP SECURITY HEADERS ---
@@ -84,29 +83,25 @@ def init_firebase():
         config = {'databaseURL': DATABASE_URL}
         cred = None
 
-        # 1. ลองอ่านจาก Environment Variables บน Vercel ก่อน
         for env_key in ['FIREBASE_CREDENTIALS', 'FIREBASE_KEY', 'FIREBASE_SERVICE_ACCOUNT']:
             cred_dict = parse_env_json(env_key)
             if cred_dict:
                 cred = credentials.Certificate(cred_dict)
-                print(f"✅ Firebase Loaded successfully from ENV: {env_key}")
                 break
 
-        # 2. ถ้าบน Env ไม่มี ให้ถอยมาอ่านจากไฟล์ Local
         if not cred:
             for local_file in ['serviceAccountKey.json', 'firebaseKey.json', 'firebase_key.json']:
                 if os.path.exists(local_file):
                     try:
                         cred = credentials.Certificate(local_file)
-                        print(f"✅ Firebase Loaded successfully from FILE: {local_file}")
                         break
-                    except Exception as e:
-                        print(f"⚠️ Error reading local file {local_file}: {e}")
+                    except Exception:
+                        continue
 
         if cred:
             firebase_admin.initialize_app(cred, config)
         else:
-            raise RuntimeError("❌ ไม่พบสิทธิ์การเชื่อมต่อ Firebase Database! กรุณาตรวจสอบ FIREBASE_CREDENTIALS บน Vercel")
+            raise RuntimeError("❌ ไม่พบสิทธิ์การเชื่อมต่อ Firebase Database!")
 
 init_firebase()
 
@@ -116,17 +111,14 @@ DRIVE_SCOPES = ['https://www.googleapis.com/auth/drive']
 def get_drive_service():
     cred = None
 
-    # 1. ลองอ่านจาก Environment Variables บน Vercel ก่อน
     for env_key in ['GOOGLE_DRIVE_CREDENTIALS', 'GOOGLE_DRIVE_KEY', 'DRIVE_CREDENTIALS']:
         cred_dict = parse_env_json(env_key)
         if cred_dict:
             cred = service_account.Credentials.from_service_account_info(
                 cred_dict, scopes=DRIVE_SCOPES
             )
-            print(f"✅ Google Drive Credentials Loaded from ENV: {env_key}")
             break
 
-    # 2. ถ้าไม่มีให้ถอยมาอ่านจากไฟล์ Local
     if not cred:
         for local_file in ['googleDriveKey.json', 'google_drive_key.json', 'driveKey.json']:
             if os.path.exists(local_file):
@@ -139,18 +131,17 @@ def get_drive_service():
                     continue
 
     if not cred:
-        raise RuntimeError("❌ ไม่พบสิทธิ์การเชื่อมต่อ Google Drive API! กรุณาตรวจสอบ GOOGLE_DRIVE_CREDENTIALS บน Vercel")
+        raise RuntimeError("ไม่พบสิทธิ์ GOOGLE_DRIVE_CREDENTIALS บน Environment Variables")
             
     return build('drive', 'v3', credentials=cred, cache_discovery=False)
 
 def upload_image_to_storage(file_obj, folder='projects'):
     if not file_obj or file_obj.filename == '':
-        return None
+        return None, "ไม่ได้เลือกไฟล์รูปภาพ"
         
     folder_id = os.getenv('GOOGLE_DRIVE_FOLDER_ID')
     if not folder_id:
-        print("❌ Error: ไม่พบ GOOGLE_DRIVE_FOLDER_ID ใน Environment Variables!")
-        return None
+        return None, "ไม่พบ GOOGLE_DRIVE_FOLDER_ID ใน Environment Variables"
 
     try:
         service = get_drive_service()
@@ -161,9 +152,10 @@ def upload_image_to_storage(file_obj, folder='projects'):
             
         unique_filename = f"{folder}_{uuid.uuid4().hex}{ext}"
         
+        clean_folder_id = folder_id.strip().strip("'\"")
         file_metadata = {
             'name': unique_filename,
-            'parents': [folder_id]
+            'parents': [clean_folder_id]
         }
             
         file_bytes = file_obj.read()
@@ -182,10 +174,10 @@ def upload_image_to_storage(file_obj, folder='projects'):
         permission = {'type': 'anyone', 'role': 'reader'}
         service.permissions().create(fileId=file_id, body=permission).execute()
         
-        return f"https://lh3.googleusercontent.com/d/{file_id}"
+        return f"https://lh3.googleusercontent.com/d/{file_id}", None
     except Exception as e:
-        print(f"Error uploading image to Google Drive: {e}")
-        return None
+        print(f"❌ Upload Exception: {e}")
+        return None, str(e)
 
 @app.context_processor
 def inject_profile():
@@ -369,11 +361,11 @@ def edit_profile():
         file = request.files.get('avatar_file')
         
         if file and file.filename != '':
-            new_avatar = upload_image_to_storage(file, folder='avatars')
+            new_avatar, err_msg = upload_image_to_storage(file, folder='avatars')
             if new_avatar:
                 avatar_url = new_avatar
             else:
-                flash('⚠️ อัปโหลดรูปภาพไปยัง Google Drive ไม่สำเร็จ กรุณาตรวจสอบไฟล์หรือสิทธิ์การเข้าถึง', 'danger')
+                flash(f'⚠️ อัปโหลดรูปภาพไม่สำเร็จ: {err_msg}', 'danger')
         elif request.form.get('avatar_url'):
             avatar_url = request.form.get('avatar_url')
 
@@ -410,7 +402,9 @@ def add_project():
         image_url = None
         file = request.files.get('image_file')
         if file and file.filename != '':
-            image_url = upload_image_to_storage(file, folder='projects')
+            image_url, err_msg = upload_image_to_storage(file, folder='projects')
+            if not image_url:
+                flash(f'⚠️ อัปโหลดรูปผลงานไม่สำเร็จ: {err_msg}', 'warning')
 
         if not image_url:
             image_url = request.form.get('image_url') or 'https://via.placeholder.com/600x400?text=No+Image'
@@ -450,11 +444,11 @@ def edit_project(project_id):
         file = request.files.get('image_file')
         
         if file and file.filename != '':
-            new_image_url = upload_image_to_storage(file, folder='projects')
+            new_image_url, err_msg = upload_image_to_storage(file, folder='projects')
             if new_image_url:
                 image_url = new_image_url
             else:
-                flash('⚠️ อัปโหลดรูปภาพไปยัง Google Drive ไม่สำเร็จ', 'warning')
+                flash(f'⚠️ อัปโหลดรูปผลงานไม่สำเร็จ: {err_msg}', 'warning')
         elif request.form.get('image_url'):
             image_url = request.form.get('image_url')
 
