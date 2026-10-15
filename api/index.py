@@ -1,4 +1,5 @@
 import os
+import io
 import json
 import uuid
 import secrets
@@ -8,8 +9,13 @@ from flask import Flask, render_template, request, redirect, url_for, flash, ses
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 import firebase_admin
-from firebase_admin import credentials, db, storage
+from firebase_admin import credentials, db
 from dotenv import load_dotenv
+
+# --- GOOGLE DRIVE API IMPORTS ---
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
 
 load_dotenv()
 
@@ -22,7 +28,7 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=2)
 
 DATABASE_URL = os.getenv('FIREBASE_DATABASE_URL', 'https://fluke-cyberport-default-rtdb.asia-southeast1.firebasedatabase.app')
-STORAGE_BUCKET = os.getenv('FIREBASE_STORAGE_BUCKET', 'fluke-cyberport.firebasestorage.app')
+GOOGLE_DRIVE_FOLDER_ID = os.getenv('GOOGLE_DRIVE_FOLDER_ID')
 
 FAILED_ATTEMPTS = {}
 
@@ -57,11 +63,11 @@ def verify_csrf():
             return False
     return True
 
-# --- FIREBASE INIT ---
+# --- FIREBASE REALTIME DATABASE INIT ---
 def init_firebase():
     if not firebase_admin._apps:
         local_key_path = 'serviceAccountKey.json'
-        config = {'databaseURL': DATABASE_URL, 'storageBucket': STORAGE_BUCKET}
+        config = {'databaseURL': DATABASE_URL}
         
         if os.path.exists(local_key_path):
             cred = credentials.Certificate(local_key_path)
@@ -75,9 +81,68 @@ def init_firebase():
                 cred = credentials.Certificate(cred_dict)
                 firebase_admin.initialize_app(cred, config)
             else:
-                raise RuntimeError("❌ ไม่พบสิทธิ์การเชื่อมต่อ Firebase!")
+                raise RuntimeError("❌ ไม่พบสิทธิ์การเชื่อมต่อ Firebase Database!")
 
 init_firebase()
+
+# --- GOOGLE DRIVE API STORAGE HELPER ---
+DRIVE_SCOPES = ['https://www.googleapis.com/auth/drive']
+
+def get_drive_service():
+    local_drive_key = 'googleDriveKey.json'
+    
+    if os.path.exists(local_drive_key):
+        cred = service_account.Credentials.from_service_account_file(
+            local_drive_key, scopes=DRIVE_SCOPES
+        )
+    else:
+        cred_json = os.getenv('GOOGLE_DRIVE_CREDENTIALS')
+        if cred_json:
+            cred_dict = json.loads(cred_json)
+            if 'private_key' in cred_dict:
+                cred_dict['private_key'] = cred_dict['private_key'].replace('\\n', '\n')
+            cred = service_account.Credentials.from_service_account_info(
+                cred_dict, scopes=DRIVE_SCOPES
+            )
+        else:
+            raise RuntimeError("❌ ไม่พบสิทธิ์การเชื่อมต่อ Google Drive API!")
+            
+    return build('drive', 'v3', credentials=cred)
+
+def upload_image_to_storage(file_obj, folder='projects'):
+    if not file_obj or file_obj.filename == '':
+        return None
+    try:
+        service = get_drive_service()
+        filename = secure_filename(file_obj.filename)
+        unique_filename = f"{folder}_{uuid.uuid4().hex}_{filename}"
+        
+        file_metadata = {'name': unique_filename}
+        if GOOGLE_DRIVE_FOLDER_ID:
+            file_metadata['parents'] = [GOOGLE_DRIVE_FOLDER_ID]
+            
+        file_bytes = file_obj.read()
+        mimetype = file_obj.mimetype or 'image/jpeg'
+        
+        media = MediaIoBaseUpload(io.BytesIO(file_bytes), mimetype=mimetype, resumable=True)
+        
+        drive_file = service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields='id'
+        ).execute()
+        
+        file_id = drive_file.get('id')
+        
+        # ปรับสิทธิ์ไฟล์ให้ทุกคนเปิดดูรูปได้ (Public Read)
+        permission = {'type': 'anyone', 'role': 'reader'}
+        service.permissions().create(fileId=file_id, body=permission).execute()
+        
+        # คืนค่า Direct Image URL สำหรับแสดงผลใน <img src="...">
+        return f"https://lh3.googleusercontent.com/d/{file_id}"
+    except Exception as e:
+        print(f"Error uploading image to Google Drive: {e}")
+        return None
 
 @app.context_processor
 def inject_profile():
@@ -97,21 +162,6 @@ def inject_profile():
     except Exception:
         profile = default_profile
     return dict(profile=profile)
-
-def upload_image_to_storage(file_obj, folder='projects'):
-    if not file_obj or file_obj.filename == '':
-        return None
-    try:
-        filename = secure_filename(file_obj.filename)
-        unique_name = f"{folder}/{uuid.uuid4().hex}_{filename}"
-        bucket = storage.bucket()
-        blob = bucket.blob(unique_name)
-        blob.upload_from_string(file_obj.read(), content_type=file_obj.content_type)
-        blob.make_public()
-        return blob.public_url
-    except Exception as e:
-        print(f"Error uploading image: {e}")
-        return None
 
 def admin_required(f):
     @functools.wraps(f)
@@ -194,20 +244,15 @@ def login():
                 db_plain = admin_data.get('password')
 
                 if username == db_user:
-                    # 1. ตรวจสอบจาก password_hash
                     if db_hash:
-                        # กรณีเป็น Hash รูปแบบมาตรฐาน
                         if isinstance(db_hash, str) and db_hash.startswith(('scrypt:', 'pbkdf2:', 'argon2:')):
                             if check_password_hash(db_hash, password):
                                 authenticated = True
-                        # กรณีใส่เป็นข้อความธรรมดา (Plaintext) ในช่อง password_hash
                         elif db_hash == password:
                             authenticated = True
-                            # แปลงเป็น scrypt hash และอัปเดตลง Firebase ทันที
                             new_hash = generate_password_hash(password, method='scrypt')
                             db.reference('admin').update({'password_hash': new_hash})
 
-                    # 2. ตรวจสอบจาก password (ข้อความธรรมดา)
                     if not authenticated and db_plain and db_plain == password:
                         authenticated = True
                         new_hash = generate_password_hash(password, method='scrypt')
@@ -218,7 +263,6 @@ def login():
         except Exception as e:
             print(f"Error authenticating admin: {e}")
 
-        # 3. Fallback กับ .env
         if not authenticated:
             env_user = os.getenv('ADMIN_USERNAME', 'admin')
             env_pass = os.getenv('ADMIN_PASSWORD', 'admin123')
