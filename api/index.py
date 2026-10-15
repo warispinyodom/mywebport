@@ -27,7 +27,6 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=2)
 
 DATABASE_URL = os.getenv('FIREBASE_DATABASE_URL', 'https://fluke-cyberport-default-rtdb.asia-southeast1.firebasedatabase.app')
-GOOGLE_DRIVE_FOLDER_ID = os.getenv('GOOGLE_DRIVE_FOLDER_ID')
 
 FAILED_ATTEMPTS = {}
 
@@ -62,68 +61,121 @@ def verify_csrf():
             return False
     return True
 
-# --- FIREBASE REALTIME DATABASE INIT ---
+# --- FIREBASE REALTIME DATABASE INIT (FLEXIBLE KEY LOOKUP) ---
 def init_firebase():
     if not firebase_admin._apps:
-        local_key_path = 'serviceAccountKey.json'
         config = {'databaseURL': DATABASE_URL}
-        
-        if os.path.exists(local_key_path):
-            cred = credentials.Certificate(local_key_path)
+        cred = None
+
+        # 1. ค้นหาไฟล์ JSON จากเครื่อง Local (รองรับชื่อไฟล์ทุกรูปแบบ)
+        possible_local_keys = [
+            'firebaseKey.json',
+            'firebase_key.json',
+            'firebase-key.json',
+            'serviceAccountKey.json',
+            'firebaseCredentials.json'
+        ]
+
+        for key_path in possible_local_keys:
+            if os.path.exists(key_path):
+                try:
+                    cred = credentials.Certificate(key_path)
+                    print(f"✅ Firebase Loaded from local file: {key_path}")
+                    break
+                except Exception as e:
+                    print(f"⚠️ Error reading {key_path}: {e}")
+
+        # 2. ถ้าหาไฟล์ local ไม่เจอ ให้ค้นหาจาก Environment Variables
+        if not cred:
+            possible_env_vars = ['FIREBASE_CREDENTIALS', 'FIREBASE_KEY', 'FIREBASE_SERVICE_ACCOUNT']
+            for env_var in possible_env_vars:
+                cred_json = os.getenv(env_var)
+                if cred_json:
+                    try:
+                        cred_dict = json.loads(cred_json)
+                        if 'private_key' in cred_dict:
+                            cred_dict['private_key'] = cred_dict['private_key'].replace('\\n', '\n')
+                        cred = credentials.Certificate(cred_dict)
+                        print(f"✅ Firebase Loaded from env var: {env_var}")
+                        break
+                    except Exception as e:
+                        print(f"⚠️ Error parsing {env_var}: {e}")
+
+        if cred:
             firebase_admin.initialize_app(cred, config)
         else:
-            cred_json = os.getenv('FIREBASE_CREDENTIALS')
-            if cred_json:
-                cred_dict = json.loads(cred_json)
-                if 'private_key' in cred_dict:
-                    cred_dict['private_key'] = cred_dict['private_key'].replace('\\n', '\n')
-                cred = credentials.Certificate(cred_dict)
-                firebase_admin.initialize_app(cred, config)
-            else:
-                raise RuntimeError("❌ ไม่พบสิทธิ์การเชื่อมต่อ Firebase Database!")
+            raise RuntimeError("❌ ไม่พบสิทธิ์การเชื่อมต่อ Firebase Database! กรุณาเช็กไฟล์ Key หรือตัวแปร FIREBASE_CREDENTIALS / FIREBASE_KEY")
 
 init_firebase()
 
-# --- GOOGLE DRIVE API STORAGE HELPER ---
+# --- GOOGLE DRIVE API STORAGE HELPER (FLEXIBLE KEY LOOKUP) ---
 DRIVE_SCOPES = ['https://www.googleapis.com/auth/drive']
 
 def get_drive_service():
-    local_drive_key = 'googleDriveKey.json'
+    cred = None
     
-    if os.path.exists(local_drive_key):
-        cred = service_account.Credentials.from_service_account_file(
-            local_drive_key, scopes=DRIVE_SCOPES
-        )
-    else:
-        cred_json = os.getenv('GOOGLE_DRIVE_CREDENTIALS')
-        if cred_json:
-            cred_dict = json.loads(cred_json)
-            if 'private_key' in cred_dict:
-                cred_dict['private_key'] = cred_dict['private_key'].replace('\\n', '\n')
-            cred = service_account.Credentials.from_service_account_info(
-                cred_dict, scopes=DRIVE_SCOPES
-            )
-        else:
-            raise RuntimeError("❌ ไม่พบสิทธิ์การเชื่อมต่อ Google Drive API!")
+    # 1. ค้นหาไฟล์ Drive Key บน Local
+    possible_drive_keys = [
+        'googleDriveKey.json',
+        'google_drive_key.json',
+        'driveKey.json',
+        'drive_key.json'
+    ]
+
+    for key_path in possible_drive_keys:
+        if os.path.exists(key_path):
+            try:
+                cred = service_account.Credentials.from_service_account_file(
+                    key_path, scopes=DRIVE_SCOPES
+                )
+                break
+            except Exception:
+                continue
+
+    # 2. ค้นจาก Environment Variables บน Vercel/.env
+    if not cred:
+        possible_drive_envs = ['GOOGLE_DRIVE_CREDENTIALS', 'GOOGLE_DRIVE_KEY', 'DRIVE_CREDENTIALS']
+        for env_var in possible_drive_envs:
+            cred_json = os.getenv(env_var)
+            if cred_json:
+                try:
+                    cred_dict = json.loads(cred_json)
+                    if 'private_key' in cred_dict:
+                        cred_dict['private_key'] = cred_dict['private_key'].replace('\\n', '\n')
+                    cred = service_account.Credentials.from_service_account_info(
+                        cred_dict, scopes=DRIVE_SCOPES
+                    )
+                    break
+                except Exception:
+                    continue
+
+    if not cred:
+        raise RuntimeError("❌ ไม่พบสิทธิ์การเชื่อมต่อ Google Drive API! กรุณาเช็กไฟล์ googleDriveKey.json หรือ GOOGLE_DRIVE_CREDENTIALS")
             
-    return build('drive', 'v3', credentials=cred)
+    return build('drive', 'v3', credentials=cred, cache_discovery=False)
 
 def upload_image_to_storage(file_obj, folder='projects'):
     if not file_obj or file_obj.filename == '':
         return None
+        
+    folder_id = os.getenv('GOOGLE_DRIVE_FOLDER_ID')
+    if not folder_id:
+        print("❌ Error: ไม่พบ GOOGLE_DRIVE_FOLDER_ID ใน Environment Variables!")
+        return None
+
     try:
         service = get_drive_service()
         
-        # ดึงนามสกุลไฟล์อย่างปลอดภัยเพื่อรองรับชื่อไฟล์ภาษาไทย
         ext = os.path.splitext(file_obj.filename)[1].lower()
         if not ext or ext not in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg']:
             ext = '.jpg'
             
         unique_filename = f"{folder}_{uuid.uuid4().hex}{ext}"
         
-        file_metadata = {'name': unique_filename}
-        if GOOGLE_DRIVE_FOLDER_ID:
-            file_metadata['parents'] = [GOOGLE_DRIVE_FOLDER_ID]
+        file_metadata = {
+            'name': unique_filename,
+            'parents': [folder_id]
+        }
             
         file_bytes = file_obj.read()
         mimetype = file_obj.mimetype or 'image/jpeg'
@@ -138,11 +190,9 @@ def upload_image_to_storage(file_obj, folder='projects'):
         
         file_id = drive_file.get('id')
         
-        # ปรับสิทธิ์ไฟล์ให้ทุกคนเปิดดูรูปได้ (Public Read)
         permission = {'type': 'anyone', 'role': 'reader'}
         service.permissions().create(fileId=file_id, body=permission).execute()
         
-        # คืนค่า Direct Image URL สำหรับแสดงผลใน <img src="...">
         return f"https://lh3.googleusercontent.com/d/{file_id}"
     except Exception as e:
         print(f"Error uploading image to Google Drive: {e}")
