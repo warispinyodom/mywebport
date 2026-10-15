@@ -1,20 +1,15 @@
 import os
-import io
 import json
 import uuid
 import secrets
 import functools
+import requests
 from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, flash, session
 from werkzeug.security import generate_password_hash, check_password_hash
 import firebase_admin
 from firebase_admin import credentials, db
 from dotenv import load_dotenv
-
-# --- GOOGLE DRIVE API IMPORTS ---
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
 
 load_dotenv()
 load_dotenv('.env.local')
@@ -105,79 +100,50 @@ def init_firebase():
 
 init_firebase()
 
-# --- GOOGLE DRIVE API STORAGE HELPER ---
-DRIVE_SCOPES = ['https://www.googleapis.com/auth/drive']
-
-def get_drive_service():
-    cred = None
-
-    for env_key in ['GOOGLE_DRIVE_CREDENTIALS', 'GOOGLE_DRIVE_KEY', 'DRIVE_CREDENTIALS']:
-        cred_dict = parse_env_json(env_key)
-        if cred_dict:
-            cred = service_account.Credentials.from_service_account_info(
-                cred_dict, scopes=DRIVE_SCOPES
-            )
-            break
-
-    if not cred:
-        for local_file in ['googleDriveKey.json', 'google_drive_key.json', 'driveKey.json']:
-            if os.path.exists(local_file):
-                try:
-                    cred = service_account.Credentials.from_service_account_file(
-                        local_file, scopes=DRIVE_SCOPES
-                    )
-                    break
-                except Exception:
-                    continue
-
-    if not cred:
-        raise RuntimeError("ไม่พบสิทธิ์ GOOGLE_DRIVE_CREDENTIALS ใน Environment Variables")
-            
-    return build('drive', 'v3', credentials=cred, cache_discovery=False)
-
+# --- SUPABASE STORAGE HELPER ---
 def upload_image_to_storage(file_obj, folder='projects'):
     if not file_obj or file_obj.filename == '':
         return None, "ไม่ได้เลือกไฟล์รูปภาพ"
         
-    folder_id = os.getenv('GOOGLE_DRIVE_FOLDER_ID')
-    if not folder_id:
-        return None, "ไม่พบ GOOGLE_DRIVE_FOLDER_ID ใน Environment Variables"
+    supabase_url = os.getenv('SUPABASE_URL')
+    supabase_key = os.getenv('SUPABASE_KEY')
+    bucket_name = os.getenv('SUPABASE_BUCKET', 'portfolio-images')
+
+    if not supabase_url or not supabase_key:
+        return None, "ไม่พบ SUPABASE_URL หรือ SUPABASE_KEY ใน Environment Variables"
 
     try:
-        service = get_drive_service()
-        
         ext = os.path.splitext(file_obj.filename)[1].lower()
         if not ext or ext not in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg']:
             ext = '.jpg'
             
-        unique_filename = f"{folder}_{uuid.uuid4().hex}{ext}"
-        clean_folder_id = folder_id.strip().strip("'\"")
-        
-        file_metadata = {
-            'name': unique_filename,
-            'parents': [clean_folder_id]
-        }
-            
+        unique_filename = f"{folder}/{uuid.uuid4().hex}{ext}"
         file_bytes = file_obj.read()
         mimetype = file_obj.mimetype or 'image/jpeg'
+
+        clean_url = supabase_url.strip().rstrip('/')
+        clean_key = supabase_key.strip().strip("'\"")
+        clean_bucket = bucket_name.strip().strip("'\"")
+
+        upload_endpoint = f"{clean_url}/storage/v1/object/{clean_bucket}/{unique_filename}"
         
-        media = MediaIoBaseUpload(io.BytesIO(file_bytes), mimetype=mimetype, resumable=True)
-        
-        drive_file = service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id',
-            supportsAllDrives=True
-        ).execute()
-        
-        file_id = drive_file.get('id')
-        
-        permission = {'type': 'anyone', 'role': 'reader'}
-        service.permissions().create(fileId=file_id, body=permission, supportsAllDrives=True).execute()
-        
-        return f"https://lh3.googleusercontent.com/d/{file_id}", None
+        headers = {
+            "Authorization": f"Bearer {clean_key}",
+            "apiKey": clean_key,
+            "Content-Type": mimetype
+        }
+
+        response = requests.post(upload_endpoint, data=file_bytes, headers=headers, timeout=15)
+
+        if response.status_code in [200, 201]:
+            public_url = f"{clean_url}/storage/v1/object/public/{clean_bucket}/{unique_filename}"
+            return public_url, None
+        else:
+            err_info = response.json() if response.text else response.text
+            return None, f"Supabase Error ({response.status_code}): {err_info}"
+
     except Exception as e:
-        print(f"❌ Upload Exception: {e}")
+        print(f"❌ Supabase Upload Exception: {e}")
         return None, str(e)
 
 @app.context_processor
@@ -383,7 +349,6 @@ def edit_profile():
             'updated_at': datetime.utcnow().isoformat()
         })
 
-        # แสดงข้อความแจ้งเตือนเพียงรายการเดียวให้สอดคล้องกัน
         if upload_err:
             flash(f'⚠️ บันทึกข้อความส่วนตัวแล้ว แต่ไม่สามารถอัปโหลดรูปภาพได้: {upload_err}', 'warning')
         else:
