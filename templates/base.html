@@ -53,12 +53,12 @@
         </div>
     </nav>
 
-    <!-- Flash Messages -->
+    <!-- Flash Messages (รองรับ warning เพิ่มเติม) -->
     <div class="max-w-6xl mx-auto px-4 mt-4 w-full">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
-                    <div class="p-4 rounded-xl text-sm mb-3 flex items-center justify-between shadow-lg {% if category == 'danger' %}bg-red-900/80 border border-red-500 text-red-100{% elif category == 'success' %}bg-emerald-900/80 border border-emerald-500 text-emerald-100{% else %}bg-indigo-900/80 border border-indigo-500 text-indigo-100{% endif %}">
+                    <div class="p-4 rounded-xl text-sm mb-3 flex items-center justify-between shadow-lg {% if category == 'danger' %}bg-red-900/80 border border-red-500 text-red-100{% elif category == 'success' %}bg-emerald-900/80 border border-emerald-500 text-emerald-100{% elif category == 'warning' %}bg-amber-900/80 border border-amber-500 text-amber-100{% else %}bg-indigo-900/80 border border-indigo-500 text-indigo-100{% endif %}">
                         <span>{{ message }}</span>
                         <button onclick="this.parentElement.remove()" class="text-xs opacity-70 hover:opacity-100 ml-4"><i class="fas fa-times"></i></button>
                     </div>
@@ -74,7 +74,7 @@
 
     <!-- Footer -->
     <footer class="bg-slate-950 border-t border-slate-800/80 text-center py-6 text-slate-500 text-xs md:text-sm px-4">
-        © 2026 Developed with Flask & Firebase on Vercel. All rights reserved.
+        © 2026 Developed with Flask, Firebase & Supabase on Vercel. All rights reserved.
     </footer>
 
     <script>
