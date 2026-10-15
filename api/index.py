@@ -6,7 +6,6 @@ import secrets
 import functools
 from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, flash, session
-from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 import firebase_admin
 from firebase_admin import credentials, db
@@ -114,8 +113,13 @@ def upload_image_to_storage(file_obj, folder='projects'):
         return None
     try:
         service = get_drive_service()
-        filename = secure_filename(file_obj.filename)
-        unique_filename = f"{folder}_{uuid.uuid4().hex}_{filename}"
+        
+        # ดึงนามสกุลไฟล์อย่างปลอดภัยเพื่อรองรับชื่อไฟล์ภาษาไทย
+        ext = os.path.splitext(file_obj.filename)[1].lower()
+        if not ext or ext not in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg']:
+            ext = '.jpg'
+            
+        unique_filename = f"{folder}_{uuid.uuid4().hex}{ext}"
         
         file_metadata = {'name': unique_filename}
         if GOOGLE_DRIVE_FOLDER_ID:
@@ -212,7 +216,7 @@ def contact():
     flash('ส่งข้อความเรียบร้อยแล้ว ขอบคุณที่ติดต่อมาครับ!', 'success')
     return redirect(url_for('home') + '#contact')
 
-# --- AUTHENTICATION (OWASP SECURED & AUTO-MIGRATION) ---
+# --- AUTHENTICATION ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if session.get('is_admin'):
@@ -324,10 +328,13 @@ def edit_profile():
 
         avatar_url = current_profile.get('avatar_url', '') if isinstance(current_profile, dict) else ''
         file = request.files.get('avatar_file')
+        
         if file and file.filename != '':
             new_avatar = upload_image_to_storage(file, folder='avatars')
             if new_avatar:
                 avatar_url = new_avatar
+            else:
+                flash('⚠️ อัปโหลดรูปภาพไปยัง Google Drive ไม่สำเร็จ กรุณาตรวจสอบไฟล์หรือสิทธิ์การเข้าถึง', 'danger')
         elif request.form.get('avatar_url'):
             avatar_url = request.form.get('avatar_url')
 
@@ -407,6 +414,8 @@ def edit_project(project_id):
             new_image_url = upload_image_to_storage(file, folder='projects')
             if new_image_url:
                 image_url = new_image_url
+            else:
+                flash('⚠️ อัปโหลดรูปภาพไปยัง Google Drive ไม่สำเร็จ', 'warning')
         elif request.form.get('image_url'):
             image_url = request.form.get('image_url')
 
