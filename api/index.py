@@ -131,7 +131,7 @@ def get_drive_service():
                     continue
 
     if not cred:
-        raise RuntimeError("ไม่พบสิทธิ์ GOOGLE_DRIVE_CREDENTIALS บน Environment Variables")
+        raise RuntimeError("ไม่พบสิทธิ์ GOOGLE_DRIVE_CREDENTIALS ใน Environment Variables")
             
     return build('drive', 'v3', credentials=cred, cache_discovery=False)
 
@@ -151,8 +151,8 @@ def upload_image_to_storage(file_obj, folder='projects'):
             ext = '.jpg'
             
         unique_filename = f"{folder}_{uuid.uuid4().hex}{ext}"
-        
         clean_folder_id = folder_id.strip().strip("'\"")
+        
         file_metadata = {
             'name': unique_filename,
             'parents': [clean_folder_id]
@@ -166,13 +166,14 @@ def upload_image_to_storage(file_obj, folder='projects'):
         drive_file = service.files().create(
             body=file_metadata,
             media_body=media,
-            fields='id'
+            fields='id',
+            supportsAllDrives=True
         ).execute()
         
         file_id = drive_file.get('id')
         
         permission = {'type': 'anyone', 'role': 'reader'}
-        service.permissions().create(fileId=file_id, body=permission).execute()
+        service.permissions().create(fileId=file_id, body=permission, supportsAllDrives=True).execute()
         
         return f"https://lh3.googleusercontent.com/d/{file_id}", None
     except Exception as e:
@@ -359,15 +360,14 @@ def edit_profile():
 
         avatar_url = current_profile.get('avatar_url', '') if isinstance(current_profile, dict) else ''
         file = request.files.get('avatar_file')
+        upload_err = None
         
         if file and file.filename != '':
-            new_avatar, err_msg = upload_image_to_storage(file, folder='avatars')
+            new_avatar, upload_err = upload_image_to_storage(file, folder='avatars')
             if new_avatar:
                 avatar_url = new_avatar
-            else:
-                flash(f'⚠️ อัปโหลดรูปภาพไม่สำเร็จ: {err_msg}', 'danger')
         elif request.form.get('avatar_url'):
-            avatar_url = request.form.get('avatar_url')
+            avatar_url = request.form.get('avatar_url').strip()
 
         skills = [s.strip() for s in request.form.get('skills', '').split(',') if s.strip()]
 
@@ -382,7 +382,13 @@ def edit_profile():
             'avatar_url': avatar_url,
             'updated_at': datetime.utcnow().isoformat()
         })
-        flash('อัปเดตข้อมูลส่วนตัวเรียบร้อยแล้ว!', 'success')
+
+        # แสดงข้อความแจ้งเตือนเพียงรายการเดียวให้สอดคล้องกัน
+        if upload_err:
+            flash(f'⚠️ บันทึกข้อความส่วนตัวแล้ว แต่ไม่สามารถอัปโหลดรูปภาพได้: {upload_err}', 'warning')
+        else:
+            flash('อัปเดตข้อมูลส่วนตัวเรียบร้อยแล้ว!', 'success')
+
         return redirect(url_for('admin_dashboard'))
 
     if isinstance(current_profile, dict):
@@ -400,14 +406,14 @@ def add_project():
             return redirect(url_for('add_project'))
 
         image_url = None
+        upload_err = None
         file = request.files.get('image_file')
+        
         if file and file.filename != '':
-            image_url, err_msg = upload_image_to_storage(file, folder='projects')
-            if not image_url:
-                flash(f'⚠️ อัปโหลดรูปผลงานไม่สำเร็จ: {err_msg}', 'warning')
+            image_url, upload_err = upload_image_to_storage(file, folder='projects')
 
         if not image_url:
-            image_url = request.form.get('image_url') or 'https://via.placeholder.com/600x400?text=No+Image'
+            image_url = request.form.get('image_url', '').strip() or 'https://via.placeholder.com/600x400?text=No+Image'
 
         tags = [t.strip() for t in request.form.get('tags', '').split(',') if t.strip()]
         db.reference('projects').push({
@@ -421,7 +427,12 @@ def add_project():
             'is_featured': 'is_featured' in request.form,
             'created_at': datetime.utcnow().isoformat()
         })
-        flash('เพิ่มผลงานเรียบร้อยแล้ว', 'success')
+
+        if upload_err:
+            flash(f'⚠️ เพิ่มผลงานสำเร็จ แต่การอัปโหลดรูปภาพล้มเหลว: {upload_err}', 'warning')
+        else:
+            flash('เพิ่มผลงานเรียบร้อยแล้ว', 'success')
+
         return redirect(url_for('admin_dashboard'))
 
     return render_template('admin/project_form.html', project=None, title="เพิ่มผลงานใหม่")
@@ -441,16 +452,15 @@ def edit_project(project_id):
             return redirect(url_for('edit_project', project_id=project_id))
 
         image_url = project.get('image_url')
+        upload_err = None
         file = request.files.get('image_file')
         
         if file and file.filename != '':
-            new_image_url, err_msg = upload_image_to_storage(file, folder='projects')
+            new_image_url, upload_err = upload_image_to_storage(file, folder='projects')
             if new_image_url:
                 image_url = new_image_url
-            else:
-                flash(f'⚠️ อัปโหลดรูปผลงานไม่สำเร็จ: {err_msg}', 'warning')
         elif request.form.get('image_url'):
-            image_url = request.form.get('image_url')
+            image_url = request.form.get('image_url').strip()
 
         tags = [t.strip() for t in request.form.get('tags', '').split(',') if t.strip()]
         ref.update({
@@ -463,7 +473,12 @@ def edit_project(project_id):
             'tags': tags,
             'is_featured': 'is_featured' in request.form
         })
-        flash('อัปเดตผลงานเรียบร้อยแล้ว', 'success')
+
+        if upload_err:
+            flash(f'⚠️ อัปเดตข้อมูลผลงานแล้ว แต่การอัปโหลดรูปภาพล้มเหลว: {upload_err}', 'warning')
+        else:
+            flash('อัปเดตผลงานเรียบร้อยแล้ว', 'success')
+
         return redirect(url_for('admin_dashboard'))
 
     project['id'] = project_id
