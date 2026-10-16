@@ -11,6 +11,7 @@ import firebase_admin
 from firebase_admin import credentials, db
 from dotenv import load_dotenv
 
+# โหลด Environment Variables ทั้งจาก .env และ .env.local
 load_dotenv()
 load_dotenv('.env.local')
 
@@ -22,7 +23,7 @@ app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=2)
 
-DATABASE_URL = os.getenv('FIREBASE_DATABASE_URL', 'https://fluke-cyberport-default-rtdb.asia-southeast1.firebasedatabase.app')
+DATABASE_URL = os.getenv('FIREBASE_DATABASE_URL', 'https://mythical-envoy-510318-t9-default-rtdb.asia-southeast1.firebasedatabase.app')
 
 FAILED_ATTEMPTS = {}
 
@@ -72,7 +73,7 @@ def verify_csrf():
             return False
     return True
 
-# --- FIREBASE REALTIME DATABASE INIT ---
+# --- SAFE FIREBASE REALTIME DATABASE INIT ---
 def init_firebase():
     if not firebase_admin._apps:
         config = {'databaseURL': DATABASE_URL}
@@ -85,7 +86,7 @@ def init_firebase():
                 break
 
         if not cred:
-            for local_file in ['serviceAccountKey.json', 'firebaseKey.json', 'firebase_key.json']:
+            for local_file in ['serviceAccountKey.json', 'firebaseKey.json', 'firebase_key.json', 'mythical-envoy-510318-t9-firebase-adminsdk-fbsvc-604ed12749.json']:
                 if os.path.exists(local_file):
                     try:
                         cred = credentials.Certificate(local_file)
@@ -95,10 +96,15 @@ def init_firebase():
 
         if cred:
             firebase_admin.initialize_app(cred, config)
+            print("✅ Firebase Admin initialized successfully")
         else:
-            raise RuntimeError("❌ ไม่พบสิทธิ์การเชื่อมต่อ Firebase Database!")
+            print("⚠️ Warning: Firebase credentials not found during startup!")
 
-init_firebase()
+# เรียกใช้งานแบบ Safe Init ตอนบูตระบบ
+try:
+    init_firebase()
+except Exception as e:
+    print(f"❌ Firebase startup exception: {e}")
 
 # --- SUPABASE STORAGE HELPER ---
 def upload_image_to_storage(file_obj, folder='projects'):
@@ -149,16 +155,18 @@ def upload_image_to_storage(file_obj, folder='projects'):
 @app.context_processor
 def inject_profile():
     default_profile = {
-        'name': 'waris pinyodom',
+        'name': 'Waris Pinyodom',
         'title': 'Cyber Security / Full Stack Developer',
         'bio': 'มุ่งมั่นพัฒนาเว็บแอปพลิเคชันที่มีคุณภาพ ปรับแต่งได้ตามโจทย์ และใช้งานง่าย',
-        'skills': ['Python', 'Flask', 'JavaScript', 'Firebase', 'Tailwind CSS'],
+        'skills': ['Python', 'Flask', 'JavaScript', 'Firebase', 'Tailwind CSS', 'Supabase'],
         'github': 'https://github.com/warispinyodom/',
         'linkedin': 'https://linkedin.com',
-        'email': 'flukewaris48@gmail.com',
+        'email': 'waris.pi@kkumail.com',
         'avatar_url': ''
     }
     try:
+        if not firebase_admin._apps:
+            init_firebase()
         profile_db = db.reference('profile').get()
         profile = {**default_profile, **profile_db} if isinstance(profile_db, dict) else default_profile
     except Exception:
@@ -179,6 +187,8 @@ def admin_required(f):
 def home():
     projects = []
     try:
+        if not firebase_admin._apps:
+            init_firebase()
         data = db.reference('projects').get()
         if isinstance(data, dict):
             for key, val in data.items():
@@ -203,15 +213,21 @@ def contact():
         flash('กรุณากรอกข้อมูลให้ครบถ้วน', 'danger')
         return redirect(url_for('home') + '#contact')
 
-    db.reference('messages').push({
-        'name': name,
-        'email': email,
-        'subject': subject or 'สอบถามเพิ่มเติม',
-        'message': message,
-        'is_read': False,
-        'created_at': datetime.utcnow().isoformat()
-    })
-    flash('ส่งข้อความเรียบร้อยแล้ว ขอบคุณที่ติดต่อมาครับ!', 'success')
+    try:
+        if not firebase_admin._apps:
+            init_firebase()
+        db.reference('messages').push({
+            'name': name,
+            'email': email,
+            'subject': subject or 'สอบถามเพิ่มเติม',
+            'message': message,
+            'is_read': False,
+            'created_at': datetime.utcnow().isoformat()
+        })
+        flash('ส่งข้อความเรียบร้อยแล้ว ขอบคุณที่ติดต่อมาครับ!', 'success')
+    except Exception as e:
+        flash(f'เกิดข้อผิดพลาดในการบันทึกข้อความ: {e}', 'danger')
+
     return redirect(url_for('home') + '#contact')
 
 # --- AUTHENTICATION ---
@@ -239,6 +255,8 @@ def login():
         authenticated = False
 
         try:
+            if not firebase_admin._apps:
+                init_firebase()
             admin_data = db.reference('admin').get()
             if isinstance(admin_data, dict):
                 db_user = admin_data.get('username')
@@ -303,20 +321,32 @@ def logout():
 @app.route('/admin')
 @admin_required
 def admin_dashboard():
-    projects_dict = db.reference('projects').get() or {}
-    projects = [{'id': k, **v} for k, v in projects_dict.items()] if isinstance(projects_dict, dict) else []
-    projects.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+    projects = []
+    messages = []
+    profile = {}
+    
+    try:
+        if not firebase_admin._apps:
+            init_firebase()
+        projects_dict = db.reference('projects').get() or {}
+        projects = [{'id': k, **v} for k, v in projects_dict.items()] if isinstance(projects_dict, dict) else []
+        projects.sort(key=lambda x: x.get('created_at', ''), reverse=True)
 
-    messages_dict = db.reference('messages').get() or {}
-    messages = [{'id': k, **v} for k, v in messages_dict.items()] if isinstance(messages_dict, dict) else []
-    messages.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+        messages_dict = db.reference('messages').get() or {}
+        messages = [{'id': k, **v} for k, v in messages_dict.items()] if isinstance(messages_dict, dict) else []
+        messages.sort(key=lambda x: x.get('created_at', ''), reverse=True)
 
-    profile = db.reference('profile').get() or {}
+        profile = db.reference('profile').get() or {}
+    except Exception as e:
+        print(f"Error fetching dashboard data: {e}")
+
     return render_template('admin/dashboard.html', projects=projects, messages=messages, profile=profile)
 
 @app.route('/admin/profile', methods=['GET', 'POST'])
 @admin_required
 def edit_profile():
+    if not firebase_admin._apps:
+        init_firebase()
     ref = db.reference('profile')
     current_profile = ref.get() or {}
 
@@ -381,6 +411,9 @@ def add_project():
             image_url = request.form.get('image_url', '').strip() or 'https://via.placeholder.com/600x400?text=No+Image'
 
         tags = [t.strip() for t in request.form.get('tags', '').split(',') if t.strip()]
+        
+        if not firebase_admin._apps:
+            init_firebase()
         db.reference('projects').push({
             'title': request.form.get('title', '').strip(),
             'category': request.form.get('category', 'Web App').strip(),
@@ -405,6 +438,8 @@ def add_project():
 @app.route('/admin/project/edit/<project_id>', methods=['GET', 'POST'])
 @admin_required
 def edit_project(project_id):
+    if not firebase_admin._apps:
+        init_firebase()
     ref = db.reference(f'projects/{project_id}')
     project = ref.get()
 
@@ -454,6 +489,8 @@ def edit_project(project_id):
 @admin_required
 def delete_project(project_id):
     if verify_csrf():
+        if not firebase_admin._apps:
+            init_firebase()
         db.reference(f'projects/{project_id}').delete()
         flash('ลบผลงานเรียบร้อยแล้ว', 'info')
     return redirect(url_for('admin_dashboard'))
@@ -462,6 +499,8 @@ def delete_project(project_id):
 @admin_required
 def mark_message_read(msg_id):
     if verify_csrf():
+        if not firebase_admin._apps:
+            init_firebase()
         db.reference(f'messages/{msg_id}').update({'is_read': True})
     return redirect(url_for('admin_dashboard'))
 
@@ -469,6 +508,8 @@ def mark_message_read(msg_id):
 @admin_required
 def delete_message(msg_id):
     if verify_csrf():
+        if not firebase_admin._apps:
+            init_firebase()
         db.reference(f'messages/{msg_id}').delete()
         flash('ลบข้อความเรียบร้อยแล้ว', 'info')
     return redirect(url_for('admin_dashboard'))
